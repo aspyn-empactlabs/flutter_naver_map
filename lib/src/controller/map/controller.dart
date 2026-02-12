@@ -268,8 +268,8 @@ class _NaverMapControllerImpl
   @override
   void dispose() {
     myLocationTracker._stopTracking();
-    overlayController.disposeChannel();
     _nowCameraPositionStreamController.close();
     _trackingModeStreamController.close();
+    overlayController.disposeChannel();
   }
 }

@@ -20,6 +20,7 @@ mixin NChannelWrapper {
 
   void disposeChannel() {
     if (isChannelInitialized) channel.setMethodCallHandler(null);
+    isChannelInitialized = false;
   }
 
   Future<T?> invokeMethod<T>(String funcName, [NMessageable? arg]) {
