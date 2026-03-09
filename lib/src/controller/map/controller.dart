@@ -201,7 +201,11 @@ class _NaverMapControllerImpl
   @override
   Future<void> deleteOverlay(NOverlayInfo info) async {
     assert(info.type != NOverlayType.locationOverlay);
-    await invokeMethod("deleteOverlay", info);
+    try {
+      await invokeMethod("deleteOverlay", info);
+    } on PlatformException catch (_) {
+      // overlay may have already been removed by the native clustering SDK
+    }
     overlayController.deleteWithInfo(info);
   }
 

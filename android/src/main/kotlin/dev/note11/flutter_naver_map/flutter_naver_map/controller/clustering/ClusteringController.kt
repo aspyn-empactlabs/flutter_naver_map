@@ -97,7 +97,6 @@ internal class ClusteringController(
         val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
         clusterer.addAll(markersWithTag)
-        updateClusterer()
         clusterableMarkers.putAll(markersWithTag)
     }
 

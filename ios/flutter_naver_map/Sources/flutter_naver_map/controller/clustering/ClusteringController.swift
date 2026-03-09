@@ -67,7 +67,6 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
         clusterer?.addAll(markersWithTag)
         clusterableMarkers.merge(markersWithTag, uniquingKeysWith: { $1 })
-        updateClusterer()
     }
     
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
