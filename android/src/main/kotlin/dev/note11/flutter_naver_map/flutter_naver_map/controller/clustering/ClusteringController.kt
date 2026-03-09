@@ -103,6 +103,12 @@ internal class ClusteringController(
     fun addClusterableMarkerAll(markers: List<NClusterableMarker>) {
         val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
+
+        // Skip rebuild if marker keys (id set) haven't changed
+        if (markersWithTag.size == clusterableMarkers.size
+            && markersWithTag.keys == clusterableMarkers.keys
+        ) return
+
         clusterableMarkers.putAll(markersWithTag)
         rebuildClusterer()
     }
