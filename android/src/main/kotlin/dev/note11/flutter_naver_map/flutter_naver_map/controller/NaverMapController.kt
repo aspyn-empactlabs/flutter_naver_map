@@ -208,7 +208,18 @@ internal class NaverMapController(
                 clusteringController.deleteClusterableMarker(overlayInfo)
             }
 
-            else -> overlayController.deleteOverlay(overlayInfo)
+            else -> {
+                if (overlayController.hasOverlay(overlayInfo)) {
+                    overlayController.deleteOverlay(overlayInfo)
+                } else {
+                    // fallback: marker may have been added as clusterable marker
+                    try {
+                        clusteringController.deleteClusterableMarker(overlayInfo)
+                    } catch (_: Exception) {
+                        // already removed by clustering SDK
+                    }
+                }
+            }
         }
         onSuccess()
     }
