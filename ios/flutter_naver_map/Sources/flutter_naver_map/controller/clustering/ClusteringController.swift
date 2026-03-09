@@ -73,6 +73,13 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     func addClusterableMarkerAll(_ markers: [NClusterableMarker]) {
         let markersWithTag: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
+
+        // Skip rebuild if marker keys (id set) haven't changed
+        if markersWithTag.count == clusterableMarkers.count
+            && Set(markersWithTag.keys) == Set(clusterableMarkers.keys) {
+            return
+        }
+
         clusterableMarkers.merge(markersWithTag, uniquingKeysWith: { $1 })
         rebuildClusterer()
     }
