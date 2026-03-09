@@ -71,17 +71,34 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     }
 
     func addClusterableMarkerAll(_ markers: [NClusterableMarker]) {
-        let markersWithTag: [NClusterableMarkerInfo: NClusterableMarker]
+        let newMarkers: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
 
-        // Skip rebuild if marker keys (id set) haven't changed
-        if markersWithTag.count == clusterableMarkers.count
-            && Set(markersWithTag.keys) == Set(clusterableMarkers.keys) {
+        // Skip entirely if marker keys haven't changed
+        let newKeys = Set(newMarkers.keys)
+        let existingKeys = Set(clusterableMarkers.keys)
+        if newKeys == existingKeys { return }
+
+        // If clusterer not yet initialized, do full build
+        guard let currentClusterer = clusterer else {
+            clusterableMarkers.merge(newMarkers, uniquingKeysWith: { $1 })
+            rebuildClusterer()
             return
         }
 
-        clusterableMarkers.merge(markersWithTag, uniquingKeysWith: { $1 })
-        rebuildClusterer()
+        // Incremental update: only add/remove changed markers
+        let toRemove = existingKeys.subtracting(newKeys)
+        let toAddKeys = newKeys.subtracting(existingKeys)
+        let toAdd = newMarkers.filter { toAddKeys.contains($0.key) }
+
+        for key in toRemove {
+            clusterableMarkers.removeValue(forKey: key)
+            currentClusterer.remove(forKey: key)
+        }
+        if !toAdd.isEmpty {
+            clusterableMarkers.merge(toAdd, uniquingKeysWith: { $1 })
+            currentClusterer.addAll(toAdd)
+        }
     }
 
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
