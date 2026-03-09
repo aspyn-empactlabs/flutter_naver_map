@@ -76,6 +76,10 @@ internal class ClusteringController(
         clusterer.map = naverMap
     }
 
+    private fun updateClustererWithoutFlicker() {
+        clusterer.map = naverMap
+    }
+
     // maybe caused by TLHC frame copy failed
     private fun scheduleInvalidateView() {
         nowViewInvalidationRunnable?.let { nowHandler.removeCallbacks(it) }
@@ -97,6 +101,7 @@ internal class ClusteringController(
         val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
         clusterer.addAll(markersWithTag)
+        updateClustererWithoutFlicker()
         clusterableMarkers.putAll(markersWithTag)
     }
 
