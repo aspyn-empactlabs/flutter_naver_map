@@ -17,6 +17,7 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     
     private var clusterableMarkers: [NClusterableMarkerInfo: NClusterableMarker] = [:]
     private var mergedScreenDistanceCacheArray: [Double] = Array(repeating: NMC_DEFAULT_SCREEN_DISTANCE, count: 24) // idx: zoom, distance
+    private var suppressRelease = false
     private lazy var clusterMarkerUpdate = ClusterMarkerUpdater(callback: { [weak self] info, marker in
         self?.onClusterMarkerUpdate(info, marker)
     })
@@ -27,26 +28,8 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     func updateClusterOptions(_ options: NaverMapClusterOptions) {
         clusterOptions = options
         print(options)
-        if clusterer != nil { clusterer?.mapView = nil }
-        
         cacheScreenDistance(options.mergeStrategy.willMergedScreenDistance)
-        
-        let builder = NMCComplexBuilder<NClusterableMarkerInfo>()
-        builder.minClusteringZoom = options.enableZoomRange.min ?? Int(NMF_MIN_ZOOM)
-        builder.maxClusteringZoom = options.enableZoomRange.max ?? Int(NMF_MAX_ZOOM)
-        builder.maxScreenDistance = options.mergeStrategy.maxMergeableScreenDistance
-        builder.animationDuration = Double(options.animationDuration) * 0.001
-        builder.thresholdStrategy = self
-        builder.tagMergeStrategy = self
-        builder.minIndexingZoom = 0
-        builder.maxIndexingZoom = 0
-        builder.markerManager = self
-        builder.clusterMarkerUpdater = clusterMarkerUpdate
-        builder.leafMarkerUpdater = clusterableMarkerUpdate
-        let newClusterer = builder.build()
-        newClusterer.addAll(clusterableMarkers)
-        newClusterer.mapView = naverMapView
-        clusterer = newClusterer
+        rebuildClusterer()
     }
     
     private func cacheScreenDistance(_ willMergedScreenDistance: Dictionary<NRange<Int>, Double>) {
@@ -57,33 +40,54 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         }
     }
     
-    private func updateClusterer() {
-        clusterer!.mapView = nil
-        clusterer!.mapView = naverMapView
+    private func buildClusterer() -> NMCClusterer<NClusterableMarkerInfo> {
+        let builder = NMCComplexBuilder<NClusterableMarkerInfo>()
+        builder.minClusteringZoom = clusterOptions.enableZoomRange.min ?? Int(NMF_MIN_ZOOM)
+        builder.maxClusteringZoom = clusterOptions.enableZoomRange.max ?? Int(NMF_MAX_ZOOM)
+        builder.maxScreenDistance = clusterOptions.mergeStrategy.maxMergeableScreenDistance
+        builder.animationDuration = Double(clusterOptions.animationDuration) * 0.001
+        builder.thresholdStrategy = self
+        builder.tagMergeStrategy = self
+        builder.minIndexingZoom = 0
+        builder.maxIndexingZoom = 0
+        builder.markerManager = self
+        builder.clusterMarkerUpdater = clusterMarkerUpdate
+        builder.leafMarkerUpdater = clusterableMarkerUpdate
+        return builder.build()
     }
 
-    private func updateClustererWithoutFlicker() {
-        clusterer?.mapView = naverMapView
+    private func rebuildClusterer() {
+        let oldClusterer = clusterer
+
+        let newClusterer = buildClusterer()
+        newClusterer.addAll(clusterableMarkers)
+        newClusterer.mapView = naverMapView
+
+        suppressRelease = true
+        oldClusterer?.mapView = nil
+        suppressRelease = false
+
+        clusterer = newClusterer
     }
-    
+
     func addClusterableMarkerAll(_ markers: [NClusterableMarker]) {
         let markersWithTag: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
         clusterableMarkers.merge(markersWithTag, uniquingKeysWith: { $1 })
-        clusterer?.addAll(markersWithTag)
+        rebuildClusterer()
     }
-    
+
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
         let clusterableOverlayInfo = NClusterableMarkerInfo(id: overlayInfo.id, tags: [:], position: NMGLatLng.invalid())
         clusterableMarkers.removeValue(forKey: clusterableOverlayInfo)
         overlayController.deleteOverlay(info: overlayInfo)
-        clusterer?.remove(clusterableOverlayInfo)
+        rebuildClusterer()
     }
-    
+
     func clearClusterableMarker() {
         clusterableMarkers.removeAll()
         overlayController.clearOverlays(type: .clusterableMarker)
-        clusterer?.clear()
+        rebuildClusterer()
     }
     
     private func onClusterMarkerUpdate(_ clusterMarkerInfo: NMCClusterMarkerInfo, _ marker: NMFMarker) {
@@ -150,6 +154,7 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     }
     
     func releaseMarker(_ info: NMCMarkerInfo, _ marker: NMFMarker) {
+        if suppressRelease { return }
         let data = info.tag
         switch data {
         case let data as NClusterableMarker:
