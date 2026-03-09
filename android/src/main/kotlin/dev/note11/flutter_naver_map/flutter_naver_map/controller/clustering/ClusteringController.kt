@@ -101,16 +101,35 @@ internal class ClusteringController(
     }
 
     fun addClusterableMarkerAll(markers: List<NClusterableMarker>) {
-        val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
+        val newMarkers: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
 
-        // Skip rebuild if marker keys (id set) haven't changed
-        if (markersWithTag.size == clusterableMarkers.size
-            && markersWithTag.keys == clusterableMarkers.keys
+        // Skip entirely if marker keys haven't changed
+        if (newMarkers.size == clusterableMarkers.size
+            && newMarkers.keys == clusterableMarkers.keys
         ) return
 
-        clusterableMarkers.putAll(markersWithTag)
-        rebuildClusterer()
+        // If clusterer not yet initialized, do full build
+        if (!::clusterer.isInitialized) {
+            clusterableMarkers.putAll(newMarkers)
+            rebuildClusterer()
+            return
+        }
+
+        // Incremental update: only add/remove changed markers
+        val existingKeys = clusterableMarkers.keys.toSet()
+        val newKeys = newMarkers.keys.toSet()
+        val toRemove = existingKeys - newKeys
+        val toAdd = newMarkers.filterKeys { it !in existingKeys }
+
+        for (key in toRemove) {
+            clusterableMarkers.remove(key)
+            clusterer.remove(key)
+        }
+        if (toAdd.isNotEmpty()) {
+            clusterableMarkers.putAll(toAdd)
+            clusterer.addAll(toAdd)
+        }
     }
 
     fun deleteClusterableMarker(overlayInfo: NOverlayInfo) {
