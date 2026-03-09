@@ -61,12 +61,17 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         clusterer!.mapView = nil
         clusterer!.mapView = naverMapView
     }
+
+    private func updateClustererWithoutFlicker() {
+        clusterer?.mapView = naverMapView
+    }
     
     func addClusterableMarkerAll(_ markers: [NClusterableMarker]) {
         let markersWithTag: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
         clusterer?.addAll(markersWithTag)
         clusterableMarkers.merge(markersWithTag, uniquingKeysWith: { $1 })
+        updateClustererWithoutFlicker()
     }
     
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
