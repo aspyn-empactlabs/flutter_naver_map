@@ -69,24 +69,21 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     func addClusterableMarkerAll(_ markers: [NClusterableMarker]) {
         let markersWithTag: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
-        clusterer?.addAll(markersWithTag)
         clusterableMarkers.merge(markersWithTag, uniquingKeysWith: { $1 })
-        updateClustererWithoutFlicker()
+        clusterer?.addAll(markersWithTag)
     }
     
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
         let clusterableOverlayInfo = NClusterableMarkerInfo(id: overlayInfo.id, tags: [:], position: NMGLatLng.invalid())
         clusterableMarkers.removeValue(forKey: clusterableOverlayInfo)
         overlayController.deleteOverlay(info: overlayInfo)
-        clusterer?.remove(clusterableOverlayInfo) // if needed use callback
-        updateClusterer()
+        clusterer?.remove(clusterableOverlayInfo)
     }
     
     func clearClusterableMarker() {
         clusterableMarkers.removeAll()
         overlayController.clearOverlays(type: .clusterableMarker)
         clusterer?.clear()
-        updateClusterer()
     }
     
     private func onClusterMarkerUpdate(_ clusterMarkerInfo: NMCClusterMarkerInfo, _ marker: NMFMarker) {

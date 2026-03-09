@@ -100,9 +100,8 @@ internal class ClusteringController(
     fun addClusterableMarkerAll(markers: List<NClusterableMarker>) {
         val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
-        clusterer.addAll(markersWithTag)
-        updateClustererWithoutFlicker()
         clusterableMarkers.putAll(markersWithTag)
+        clusterer.addAll(markersWithTag)
     }
 
     fun deleteClusterableMarker(overlayInfo: NOverlayInfo) {
@@ -110,14 +109,12 @@ internal class ClusteringController(
         clusterableMarkers.remove(clusterOverlayInfo)
         clusterer.remove(clusterOverlayInfo)
         overlayController.deleteOverlay(overlayInfo)
-        updateClusterer()
     }
 
     fun clearClusterableMarker() {
         clusterableMarkers.clear()
         clusterer.clear()
         overlayController.clearOverlays(NOverlayType.CLUSTERABLE_MARKER)
-        updateClusterer()
     }
 
     private fun onClusterMarkerUpdate(
