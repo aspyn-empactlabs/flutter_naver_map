@@ -33,6 +33,7 @@ internal class ClusteringController(
 
     private val clusterableMarkers = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
     private val mergedScreenDistanceCacheArray = DoubleArray(24) // idx: zoom, distance
+    private var suppressRelease = false
 
     private val nowHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
     private var nowViewInvalidationRunnable: Runnable? = null
@@ -41,26 +42,9 @@ internal class ClusteringController(
     // first caller (change the running in instance init time)
     fun updateClusterOptions(options: NaverMapClusterOptions) {
         clusterOptions = options
-        if (::clusterer.isInitialized) clusterer.map = null
-
         cacheScreenDistance(options.mergeStrategy.willMergedScreenDistance)
-
-        val builder =
-            ComplexBuilder<NClusterableMarkerInfo>().applyEnableZoomLevel(options.enableZoomRange)
-                .maxScreenDistance(options.mergeStrategy.maxMergeableScreenDistance)
-                .animationDuration(options.animationDuration.toInt())
-//            .distanceStrategy(::distanceStrategy)
-                .thresholdStrategy(::thresholdStrategy).tagMergeStrategy(::tagMergeStrategy)
-                .clusterMarkerUpdater(::onClusterMarkerUpdate)
-                .leafMarkerUpdater(::onClusterableMarkerUpdate)
-                .markerManager(this).minIndexingZoom(0).maxIndexingZoom(0) // 해도 되는지 확인 필요
-
         updateAfterAnimationInvalidateDelay(options.animationDuration)
-
-        clusterer = builder.build().apply {
-            addAll(clusterableMarkers)
-            map = naverMap
-        }
+        rebuildClusterer()
     }
 
     private fun cacheScreenDistance(willMergedScreenDistance: Map<NRange<Int>, Double>) {
@@ -71,13 +55,32 @@ internal class ClusteringController(
         }
     }
 
-    private fun updateClusterer() {
-        clusterer.map = null
-        clusterer.map = naverMap
+    private fun buildClusterer(): Clusterer<NClusterableMarkerInfo> {
+        return ComplexBuilder<NClusterableMarkerInfo>()
+            .applyEnableZoomLevel(clusterOptions.enableZoomRange)
+            .maxScreenDistance(clusterOptions.mergeStrategy.maxMergeableScreenDistance)
+            .animationDuration(clusterOptions.animationDuration.toInt())
+            .thresholdStrategy(::thresholdStrategy)
+            .tagMergeStrategy(::tagMergeStrategy)
+            .clusterMarkerUpdater(::onClusterMarkerUpdate)
+            .leafMarkerUpdater(::onClusterableMarkerUpdate)
+            .markerManager(this)
+            .minIndexingZoom(0)
+            .maxIndexingZoom(0)
+            .build()
     }
 
-    private fun updateClustererWithoutFlicker() {
-        clusterer.map = naverMap
+    private fun rebuildClusterer() {
+        val oldClusterer = if (::clusterer.isInitialized) clusterer else null
+
+        clusterer = buildClusterer().apply {
+            addAll(clusterableMarkers)
+            map = naverMap
+        }
+
+        suppressRelease = true
+        oldClusterer?.map = null
+        suppressRelease = false
     }
 
     // maybe caused by TLHC frame copy failed
@@ -101,20 +104,20 @@ internal class ClusteringController(
         val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
         clusterableMarkers.putAll(markersWithTag)
-        clusterer.addAll(markersWithTag)
+        rebuildClusterer()
     }
 
     fun deleteClusterableMarker(overlayInfo: NOverlayInfo) {
         val clusterOverlayInfo = NClusterableMarkerInfo(overlayInfo.id, mapOf(), LatLng.INVALID)
         clusterableMarkers.remove(clusterOverlayInfo)
-        clusterer.remove(clusterOverlayInfo)
         overlayController.deleteOverlay(overlayInfo)
+        rebuildClusterer()
     }
 
     fun clearClusterableMarker() {
         clusterableMarkers.clear()
-        clusterer.clear()
         overlayController.clearOverlays(NOverlayType.CLUSTERABLE_MARKER)
+        rebuildClusterer()
     }
 
     private fun onClusterMarkerUpdate(
@@ -273,6 +276,7 @@ internal class ClusteringController(
     }
 
     override fun releaseMarker(info: MarkerInfo, marker: Marker) {
+        if (suppressRelease) return
         when (val data = info.tag) {
             is NClusterableMarker -> overlayController.deleteOverlay(data.info)
             is NClusterInfo -> overlayController.deleteOverlay(data.markerInfo.messageOverlayInfo)
