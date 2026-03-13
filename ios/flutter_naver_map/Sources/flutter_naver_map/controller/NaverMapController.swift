@@ -139,7 +139,6 @@ internal class NaverMapController: NaverMapControlSender, NaverMapControlHandler
         }
         
         if !clusterableMarkers.isEmpty {
-            print(clusterableMarkers)
             clusteringController.addClusterableMarkerAll(clusterableMarkers)
         }
         
@@ -154,7 +153,13 @@ internal class NaverMapController: NaverMapControlSender, NaverMapControlHandler
     func deleteOverlay(overlayInfo: NOverlayInfo, onSuccess: @escaping (Any?) -> ()) {
         switch overlayInfo.type {
         case .clusterableMarker: clusteringController.deleteClusterableMarker(overlayInfo)
-        default: overlayController.deleteOverlay(info: overlayInfo)
+        default:
+            if overlayController.hasOverlay(info: overlayInfo) {
+                overlayController.deleteOverlay(info: overlayInfo)
+            } else {
+                // fallback: marker may have been added as clusterable marker
+                clusteringController.deleteClusterableMarker(overlayInfo)
+            }
         }
         onSuccess(nil)
     }
