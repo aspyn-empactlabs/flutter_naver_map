@@ -27,7 +27,6 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     
     func updateClusterOptions(_ options: NaverMapClusterOptions) {
         clusterOptions = options
-        print(options)
         cacheScreenDistance(options.mergeStrategy.willMergedScreenDistance)
         rebuildClusterer()
     }
@@ -74,38 +73,79 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         let newMarkers: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
 
-        // Skip entirely if marker keys haven't changed
-        let newKeys = Set(newMarkers.keys)
-        let existingKeys = Set(clusterableMarkers.keys)
-        if newKeys == existingKeys { return }
-
         // If clusterer not yet initialized, do full build
         guard let currentClusterer = clusterer else {
+            clusterableMarkers.removeAll()
             clusterableMarkers.merge(newMarkers, uniquingKeysWith: { $1 })
             rebuildClusterer()
             return
         }
 
-        // Incremental update: only add/remove changed markers
+        let newKeys = Set(newMarkers.keys)
+        let existingKeys = Set(clusterableMarkers.keys)
         let toRemove = existingKeys.subtracting(newKeys)
         let toAddKeys = newKeys.subtracting(existingKeys)
         let toAdd = newMarkers.filter { toAddKeys.contains($0.key) }
+        let sharedKeys = existingKeys.intersection(newKeys)
+        var toRecluster: [NClusterableMarkerInfo: NClusterableMarker] = [:]
+        var toUpdateVisibleOnly: [NClusterableMarkerInfo: NClusterableMarker] = [:]
+
+        for key in sharedKeys {
+            guard let currentMarker = clusterableMarkers[key],
+                  let nextMarker = newMarkers[key] else { continue }
+
+            if hasSameMarkerState(currentMarker, nextMarker) {
+                continue
+            }
+
+            if hasStructuralChange(currentMarker, nextMarker) {
+                toRecluster[key] = nextMarker
+            } else {
+                toUpdateVisibleOnly[key] = nextMarker
+            }
+        }
+
+        if toRemove.isEmpty &&
+            toAdd.isEmpty &&
+            toRecluster.isEmpty &&
+            toUpdateVisibleOnly.isEmpty {
+            return
+        }
 
         for key in toRemove {
             clusterableMarkers.removeValue(forKey: key)
-            currentClusterer.remove(forKey: key)
+            currentClusterer.remove(key)
         }
+
+        for key in toRecluster.keys {
+            clusterableMarkers.removeValue(forKey: key)
+            currentClusterer.remove(key)
+        }
+
         if !toAdd.isEmpty {
             clusterableMarkers.merge(toAdd, uniquingKeysWith: { $1 })
             currentClusterer.addAll(toAdd)
+        }
+
+        if !toRecluster.isEmpty {
+            clusterableMarkers.merge(toRecluster, uniquingKeysWith: { $1 })
+            currentClusterer.addAll(toRecluster)
+        }
+
+        if !toUpdateVisibleOnly.isEmpty {
+            clusterableMarkers.merge(toUpdateVisibleOnly, uniquingKeysWith: { $1 })
+            updateVisibleMarkers(toUpdateVisibleOnly)
         }
     }
 
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
         let clusterableOverlayInfo = NClusterableMarkerInfo(id: overlayInfo.id, tags: [:], position: NMGLatLng.invalid())
         clusterableMarkers.removeValue(forKey: clusterableOverlayInfo)
-        overlayController.deleteOverlay(info: overlayInfo)
-        rebuildClusterer()
+        if let currentClusterer = clusterer {
+            currentClusterer.remove(clusterableOverlayInfo)
+        } else {
+            overlayController.deleteOverlay(info: overlayInfo)
+        }
     }
 
     func clearClusterableMarker() {
@@ -124,7 +164,84 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     private func sendClusterMarkerEvent(info: NClusterInfo) {
         messageSender("clusterMarkerBuilder", info.toMessageable())
     }
-    
+
+    private func hasSameMarkerState(_ currentMarker: NClusterableMarker, _ nextMarker: NClusterableMarker) -> Bool {
+        return !hasStructuralChange(currentMarker, nextMarker)
+        && hasSameWrappedMarker(currentMarker.wrappedOverlay, nextMarker.wrappedOverlay)
+    }
+
+    private func hasStructuralChange(_ currentMarker: NClusterableMarker, _ nextMarker: NClusterableMarker) -> Bool {
+        return currentMarker.clusterInfo.tags != nextMarker.clusterInfo.tags
+        || currentMarker.clusterInfo.position.lat != nextMarker.clusterInfo.position.lat
+        || currentMarker.clusterInfo.position.lng != nextMarker.clusterInfo.position.lng
+    }
+
+    private func hasSameWrappedMarker(_ currentMarker: NMarker, _ nextMarker: NMarker) -> Bool {
+        return currentMarker.info == nextMarker.info
+        && currentMarker.position.lat == nextMarker.position.lat
+        && currentMarker.position.lng == nextMarker.position.lng
+        && hasSameOverlayImage(currentMarker.icon, nextMarker.icon)
+        && currentMarker.iconTintColor.toInt() == nextMarker.iconTintColor.toInt()
+        && currentMarker.alpha == nextMarker.alpha
+        && currentMarker.angle == nextMarker.angle
+        && currentMarker.anchor.x == nextMarker.anchor.x
+        && currentMarker.anchor.y == nextMarker.anchor.y
+        && currentMarker.size.width == nextMarker.size.width
+        && currentMarker.size.height == nextMarker.size.height
+        && hasSameCaption(currentMarker.caption, nextMarker.caption)
+        && hasSameCaption(currentMarker.subCaption, nextMarker.subCaption)
+        && currentMarker.captionAligns.map { $0.toMessageableString() } == nextMarker.captionAligns.map { $0.toMessageableString() }
+        && currentMarker.captionOffset == nextMarker.captionOffset
+        && currentMarker.isCaptionPerspectiveEnabled == nextMarker.isCaptionPerspectiveEnabled
+        && currentMarker.isIconPerspectiveEnabled == nextMarker.isIconPerspectiveEnabled
+        && currentMarker.isFlat == nextMarker.isFlat
+        && currentMarker.isForceShowCaption == nextMarker.isForceShowCaption
+        && currentMarker.isForceShowIcon == nextMarker.isForceShowIcon
+        && currentMarker.isHideCollidedCaptions == nextMarker.isHideCollidedCaptions
+        && currentMarker.isHideCollidedMarkers == nextMarker.isHideCollidedMarkers
+        && currentMarker.isHideCollidedSymbols == nextMarker.isHideCollidedSymbols
+    }
+
+    private func hasSameOverlayImage(_ currentImage: NOverlayImage?, _ nextImage: NOverlayImage?) -> Bool {
+        switch (currentImage, nextImage) {
+        case (.none, .none):
+            return true
+        case let (.some(currentImage), .some(nextImage)):
+            return currentImage.path == nextImage.path && currentImage.mode == nextImage.mode
+        default:
+            return false
+        }
+    }
+
+    private func hasSameCaption(_ currentCaption: NOverlayCaption?, _ nextCaption: NOverlayCaption?) -> Bool {
+        switch (currentCaption, nextCaption) {
+        case (.none, .none):
+            return true
+        case let (.some(currentCaption), .some(nextCaption)):
+            return currentCaption.text == nextCaption.text
+            && currentCaption.textSize == nextCaption.textSize
+            && currentCaption.color.toInt() == nextCaption.color.toInt()
+            && currentCaption.haloColor.toInt() == nextCaption.haloColor.toInt()
+            && currentCaption.minZoom == nextCaption.minZoom
+            && currentCaption.maxZoom == nextCaption.maxZoom
+            && currentCaption.requestWidth == nextCaption.requestWidth
+        default:
+            return false
+        }
+    }
+
+    private func updateVisibleMarkers(_ markers: [NClusterableMarkerInfo: NClusterableMarker]) {
+        for (info, clusterableMarker) in markers {
+            guard let overlay = overlayController.getOverlay(info: info.messageOverlayInfo) as? NMFMarker else {
+                continue
+            }
+            _ = overlayController.saveOverlayWithAddable(
+                creator: clusterableMarker.wrappedOverlay,
+                createdOverlay: overlay
+            )
+        }
+    }
+
     private func onClusterableMarkerUpdate(_ clusterableMarkerInfo: NMCLeafMarkerInfo, _ marker: NMFMarker) {
         marker.iconImage = NMF_MARKER_IMAGE_BLACK
        let nClusterableMarker: NClusterableMarker = clusterableMarkerInfo.tag as! NClusterableMarker
@@ -210,7 +327,6 @@ class ClusterMarkerUpdater: NMCDefaultClusterMarkerUpdater {
     }
     
     override func updateClusterMarker(_ info: NMCClusterMarkerInfo, _ marker: NMFMarker) {
-        super.updateClusterMarker(info, marker)
         callback(info, marker)
     }
 }

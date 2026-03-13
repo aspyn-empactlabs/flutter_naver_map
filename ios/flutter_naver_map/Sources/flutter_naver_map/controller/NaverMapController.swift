@@ -139,7 +139,6 @@ internal class NaverMapController: NaverMapControlSender, NaverMapControlHandler
         }
         
         if !clusterableMarkers.isEmpty {
-            print(clusterableMarkers)
             clusteringController.addClusterableMarkerAll(clusterableMarkers)
         }
         
