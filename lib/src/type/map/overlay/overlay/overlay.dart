@@ -19,6 +19,7 @@ sealed class NOverlay<O extends NOverlay<void>>
 
   void _addedOnMap(_NOverlayController controller) {
     controller.add(info, this);
+    if (_overlayControllers.any((c) => c.viewId == controller.viewId)) return;
     _overlayControllers.add(controller);
   }
 

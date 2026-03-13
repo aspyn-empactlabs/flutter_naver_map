@@ -104,39 +104,76 @@ internal class ClusteringController(
         val newMarkers: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
 
-        // Skip entirely if marker keys haven't changed
-        if (newMarkers.size == clusterableMarkers.size
-            && newMarkers.keys == clusterableMarkers.keys
-        ) return
-
         // If clusterer not yet initialized, do full build
         if (!::clusterer.isInitialized) {
+            clusterableMarkers.clear()
             clusterableMarkers.putAll(newMarkers)
             rebuildClusterer()
             return
         }
 
-        // Incremental update: only add/remove changed markers
         val existingKeys = clusterableMarkers.keys.toSet()
         val newKeys = newMarkers.keys.toSet()
         val toRemove = existingKeys - newKeys
         val toAdd = newMarkers.filterKeys { it !in existingKeys }
+        val toRecluster = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
+        val toUpdateVisibleOnly = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
+
+        for (key in existingKeys.intersect(newKeys)) {
+            val currentMarker = clusterableMarkers.getValue(key)
+            val nextMarker = newMarkers.getValue(key)
+
+            if (hasSameMarkerState(currentMarker, nextMarker)) continue
+
+            if (hasStructuralChange(currentMarker, nextMarker)) {
+                toRecluster[key] = nextMarker
+            } else {
+                toUpdateVisibleOnly[key] = nextMarker
+            }
+        }
+
+        if (toRemove.isEmpty() &&
+            toAdd.isEmpty() &&
+            toRecluster.isEmpty() &&
+            toUpdateVisibleOnly.isEmpty()
+        ) {
+            return
+        }
 
         for (key in toRemove) {
             clusterableMarkers.remove(key)
             clusterer.remove(key)
         }
+
+        for (key in toRecluster.keys) {
+            clusterableMarkers.remove(key)
+            clusterer.remove(key)
+        }
+
         if (toAdd.isNotEmpty()) {
             clusterableMarkers.putAll(toAdd)
             clusterer.addAll(toAdd)
+        }
+
+        if (toRecluster.isNotEmpty()) {
+            clusterableMarkers.putAll(toRecluster)
+            clusterer.addAll(toRecluster)
+        }
+
+        if (toUpdateVisibleOnly.isNotEmpty()) {
+            clusterableMarkers.putAll(toUpdateVisibleOnly)
+            updateVisibleMarkers(toUpdateVisibleOnly)
         }
     }
 
     fun deleteClusterableMarker(overlayInfo: NOverlayInfo) {
         val clusterOverlayInfo = NClusterableMarkerInfo(overlayInfo.id, mapOf(), LatLng.INVALID)
         clusterableMarkers.remove(clusterOverlayInfo)
-        overlayController.deleteOverlay(overlayInfo)
-        rebuildClusterer()
+        if (::clusterer.isInitialized) {
+            clusterer.remove(clusterOverlayInfo)
+        } else {
+            overlayController.deleteOverlay(overlayInfo)
+        }
     }
 
     fun clearClusterableMarker() {
@@ -148,7 +185,6 @@ internal class ClusteringController(
     private fun onClusterMarkerUpdate(
         clusterMarkerInfo: ClusterMarkerInfo, marker: Marker,
     ) {
-        DefaultClusterMarkerUpdater().updateClusterMarker(clusterMarkerInfo, marker)
         val info = clusterMarkerInfo.tag as? NClusterInfo? ?: return
 
 //        overlayController.saveOverlay(marker, info.markerInfo.messageOverlayInfo)
@@ -159,6 +195,39 @@ internal class ClusteringController(
 
     private fun sendClusterMarkerEvent(info: NClusterInfo) {
         messageSender.invoke("clusterMarkerBuilder", info.toMessageable())
+    }
+
+    private fun hasSameMarkerState(
+        currentMarker: NClusterableMarker,
+        nextMarker: NClusterableMarker,
+    ): Boolean {
+        return !hasStructuralChange(currentMarker, nextMarker) &&
+            currentMarker.wrappedMarker == nextMarker.wrappedMarker
+    }
+
+    private fun hasStructuralChange(
+        currentMarker: NClusterableMarker,
+        nextMarker: NClusterableMarker,
+    ): Boolean {
+        return currentMarker.info.point != nextMarker.info.point ||
+            currentMarker.info.tags != nextMarker.info.tags
+    }
+
+    private fun updateVisibleMarkers(
+        markers: Map<NClusterableMarkerInfo, NClusterableMarker>,
+    ) {
+        var didUpdateVisibleMarker = false
+
+        for ((info, clusterableMarker) in markers) {
+            val currentOverlay =
+                overlayController.getOverlay(info.messageOverlayInfo) as? Marker ?: continue
+            overlayController.saveOverlayWithAddable(clusterableMarker.wrappedMarker, currentOverlay)
+            didUpdateVisibleMarker = true
+        }
+
+        if (didUpdateVisibleMarker) {
+            scheduleInvalidateView()
+        }
     }
 
     private fun onClusterableMarkerUpdate(

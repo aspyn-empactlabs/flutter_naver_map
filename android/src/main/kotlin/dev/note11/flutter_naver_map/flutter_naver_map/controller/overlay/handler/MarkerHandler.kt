@@ -23,8 +23,8 @@ internal interface MarkerHandler : OverlayHandler {
             NMarker.angleName -> setAngle(m, arg!!)
             NMarker.anchorName -> setAnchor(m, arg!!)
             NMarker.sizeName -> setSize(m, arg!!)
-            NMarker.captionName -> setCaption(m, arg!!)
-            NMarker.subCaptionName -> setSubCaption(m, arg!!)
+            NMarker.captionName -> setCaption(m, arg)
+            NMarker.subCaptionName -> setSubCaption(m, arg)
             NMarker.captionAlignsName -> setCaptionAligns(m, arg!!)
             NMarker.captionOffsetName -> setCaptionOffset(m, arg!!)
             NMarker.isCaptionPerspectiveEnabledName -> setIsCaptionPerspectiveEnabled(m, arg!!)
@@ -57,9 +57,9 @@ internal interface MarkerHandler : OverlayHandler {
 
     fun setSize(marker: Marker, rawNPoint: Any)
 
-    fun setCaption(marker: Marker, rawCaption: Any)
+    fun setCaption(marker: Marker, rawCaption: Any?)
 
-    fun setSubCaption(marker: Marker, rawSubCaption: Any)
+    fun setSubCaption(marker: Marker, rawSubCaption: Any?)
 
     fun setCaptionAligns(marker: Marker, rawCaptionAligns: Any)
 
