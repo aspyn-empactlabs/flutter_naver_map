@@ -26,7 +26,9 @@ internal class OverlayController: OverlaySender, OverlayHandler, ArrowheadPathOv
 
     func saveOverlay(overlay: NMFOverlay, info: NOverlayInfo) {
         info.saveAtOverlay(overlay)
-        detachOverlay(info: info)
+        if let existingOverlay = overlays[info], existingOverlay !== overlay {
+            detachOverlay(existingOverlay)
+        }
         overlays[info] = overlay
     }
 
@@ -36,7 +38,7 @@ internal class OverlayController: OverlaySender, OverlayHandler, ArrowheadPathOv
         }
     }
 
-    private func getOverlay(info: NOverlayInfo) -> NMFOverlay? {
+    func getOverlay(info: NOverlayInfo) -> NMFOverlay? {
         overlays[info]
     }
 
@@ -283,7 +285,11 @@ internal class OverlayController: OverlaySender, OverlayHandler, ArrowheadPathOv
         marker.height = size.height
     }
 
-    func setCaption(_ marker: NMFMarker, rawCaption: Any) {
+    func setCaption(_ marker: NMFMarker, rawCaption: Any?) {
+        guard let rawCaption else {
+            marker.captionText = ""
+            return
+        }
         let caption = NOverlayCaption.fromMessageable(rawCaption)
         marker.captionText = caption.text
         marker.captionTextSize = caption.textSize
@@ -294,7 +300,11 @@ internal class OverlayController: OverlaySender, OverlayHandler, ArrowheadPathOv
         marker.captionRequestedWidth = caption.requestWidth
     }
 
-    func setSubCaption(_ marker: NMFMarker, rawSubCaption: Any) {
+    func setSubCaption(_ marker: NMFMarker, rawSubCaption: Any?) {
+        guard let rawSubCaption else {
+            marker.subCaptionText = ""
+            return
+        }
         let caption = NOverlayCaption.fromMessageable(rawSubCaption)
         marker.subCaptionText = caption.text
         marker.subCaptionTextSize = caption.textSize
