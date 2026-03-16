@@ -1,11 +1,17 @@
 part of "../../../flutter_naver_map.dart";
 
 abstract class NaverMapController implements _NaverMapControlSender {
-  static NaverMapController _createController(MethodChannel controllerChannel,
-      {required int viewId, required NCameraPosition initialCameraPosition}) {
+  static NaverMapController _createController(
+    MethodChannel controllerChannel, {
+    required int viewId,
+    required NCameraPosition initialCameraPosition,
+  }) {
     final overlayController = _NOverlayControllerImpl(viewId: viewId);
     return _NaverMapControllerImpl(
-        controllerChannel, overlayController, initialCameraPosition);
+      controllerChannel,
+      overlayController,
+      initialCameraPosition,
+    );
   }
 
   void dispose();
@@ -25,7 +31,10 @@ abstract class NaverMapController implements _NaverMapControlSender {
   Stream<NLocationTrackingMode> get _locationTrackingModeStream;
 
   void _updateNowCameraPositionData(
-      NCameraPosition position, NCameraUpdateReason? reason, bool isIdle);
+    NCameraPosition position,
+    NCameraUpdateReason? reason,
+    bool isIdle,
+  );
 }
 
 class _NaverMapControllerImpl
@@ -47,14 +56,17 @@ class _NaverMapControllerImpl
   final NValueHoldHotStreamController<OnCameraChangedParams>
       _nowCameraPositionStreamController;
 
-  _NaverMapControllerImpl(this.channel, this.overlayController,
-      NCameraPosition initialCameraPosition)
-      : _nowCameraPositionStreamController =
-            NValueHoldHotStreamController(OnCameraChangedParams(
-          position: initialCameraPosition,
-          reason: NCameraUpdateReason.developer,
-          isIdle: true,
-        ));
+  _NaverMapControllerImpl(
+    this.channel,
+    this.overlayController,
+    NCameraPosition initialCameraPosition,
+  ) : _nowCameraPositionStreamController = NValueHoldHotStreamController(
+          OnCameraChangedParams(
+            position: initialCameraPosition,
+            reason: NCameraUpdateReason.developer,
+            isIdle: true,
+          ),
+        );
 
   @override
   Future<bool> updateCamera(NCameraUpdate cameraUpdate) async {
@@ -63,8 +75,9 @@ class _NaverMapControllerImpl
   }
 
   @override
-  Future<void> cancelTransitions(
-      {NCameraUpdateReason reason = NCameraUpdateReason.developer}) async {
+  Future<void> cancelTransitions({
+    NCameraUpdateReason reason = NCameraUpdateReason.developer,
+  }) async {
     await invokeMethod("cancelTransitions", reason);
   }
 
@@ -84,8 +97,10 @@ class _NaverMapControllerImpl
   @override
   Future<List<NLatLng>> getContentRegion({bool withPadding = false}) async {
     final messageable = NMessageable.forOnce(withPadding);
-    final rawLatLngs = await invokeMethod("getContentRegion", messageable)
-        .then((rawList) => rawList as List);
+    final rawLatLngs = await invokeMethod(
+      "getContentRegion",
+      messageable,
+    ).then((rawList) => rawList as List);
     return rawLatLngs.map(NLatLng.fromMessageable).toList();
   }
 
@@ -101,36 +116,47 @@ class _NaverMapControllerImpl
 
   @override
   Future<NLatLng> screenLocationToLatLng(NPoint point) {
-    return invokeMethod("screenLocationToLatLng", point)
-        .then((rawLatLng) => NLatLng.fromMessageable(rawLatLng));
+    return invokeMethod(
+      "screenLocationToLatLng",
+      point,
+    ).then((rawLatLng) => NLatLng.fromMessageable(rawLatLng));
   }
 
   @override
   Future<NPoint> latLngToScreenLocation(NLatLng latLng) {
-    return invokeMethod("latLngToScreenLocation", latLng)
-        .then((rawPoint) => NPoint._fromMessageable(rawPoint));
+    return invokeMethod(
+      "latLngToScreenLocation",
+      latLng,
+    ).then((rawPoint) => NPoint._fromMessageable(rawPoint));
   }
 
   @override
   double getMeterPerDp() {
     return getMeterPerDpAtLatitude(
-        latitude: nowCameraPosition.target.latitude,
-        zoom: nowCameraPosition.zoom);
+      latitude: nowCameraPosition.target.latitude,
+      zoom: nowCameraPosition.zoom,
+    );
   }
 
   @override
-  double getMeterPerDpAtLatitude(
-      {required double latitude, required double zoom}) {
+  double getMeterPerDpAtLatitude({
+    required double latitude,
+    required double zoom,
+  }) {
     return MathUtil.calcMeterPerDp(latitude, zoom);
   }
 
   @override
   Future<List<NPickableInfo>> pickAll(NPoint point, {double radius = 0}) async {
-    final messageable =
-        NMessageable.forOnceWithMap({"point": point, "radius": radius});
+    final messageable = NMessageable.forOnceWithMap({
+      "point": point,
+      "radius": radius,
+    });
 
-    final rawList =
-        await invokeMethod("pickAll", messageable).then((raw) => raw as List);
+    final rawList = await invokeMethod(
+      "pickAll",
+      messageable,
+    ).then((raw) => raw as List);
     final pickableInfoList =
         rawList.map(NPickableInfo._fromMessageable).toList();
 
@@ -147,13 +173,16 @@ class _NaverMapControllerImpl
       "showControls": showControls, // deprecated
       "compressQuality": compressQuality,
     });
-    final path = await invokeMethod("takeSnapshot", messageable)
-        .then((raw) => raw as String);
+    final path = await invokeMethod(
+      "takeSnapshot",
+      messageable,
+    ).then((raw) => raw as String);
     return File(path);
   }
 
-  final _trackingModeStreamController =
-      NValueHoldHotStreamController(NLocationTrackingMode.none);
+  final _trackingModeStreamController = NValueHoldHotStreamController(
+    NLocationTrackingMode.none,
+  );
 
   @override
   Stream<NLocationTrackingMode> get _locationTrackingModeStream =>
@@ -169,7 +198,11 @@ class _NaverMapControllerImpl
     final oldMode = locationTrackingMode;
     _trackingModeStreamController.add(mode);
     myLocationTracker._onChangeTrackingMode(
-        getLocationOverlay(), this, mode, oldMode);
+      getLocationOverlay(),
+      this,
+      mode,
+      oldMode,
+    );
   }
 
   @override
@@ -221,6 +254,14 @@ class _NaverMapControllerImpl
     await invokeMethod("forceRefresh");
   }
 
+  @override
+  Future<void> setClusterRefreshSuspended(bool suspended) async {
+    await invokeMethod(
+      "setClusterRefreshSuspended",
+      NMessageable.forOnce(suspended),
+    );
+  }
+
   /*
     --- internal methods ---
    */
@@ -255,11 +296,17 @@ class _NaverMapControllerImpl
 
   @override
   void _updateNowCameraPositionData(
-      NCameraPosition position, NCameraUpdateReason? reason, bool isIdle) {
-    _nowCameraPositionStreamController.add(OnCameraChangedParams(
+    NCameraPosition position,
+    NCameraUpdateReason? reason,
+    bool isIdle,
+  ) {
+    _nowCameraPositionStreamController.add(
+      OnCameraChangedParams(
         position: position,
         reason: reason ?? _nowCameraPositionStreamController.currentData.reason,
-        isIdle: isIdle));
+        isIdle: isIdle,
+      ),
+    );
   }
 
   /*
