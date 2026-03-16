@@ -34,17 +34,38 @@ internal class ClusteringController(
     private val clusterableMarkers = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
     private val mergedScreenDistanceCacheArray = DoubleArray(24) // idx: zoom, distance
     private var suppressRelease = false
+    private var isRefreshSuspended = false
+    private var suspendedClusterOverlays: Map<NOverlayInfo, Overlay> = emptyMap()
 
     private val nowHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
     private var nowViewInvalidationRunnable: Runnable? = null
     private var afterAnimationInvalidateDelay: Long = 80L
+    private var lastObservedCameraZoom: Double? = null
 
     // first caller (change the running in instance init time)
     fun updateClusterOptions(options: NaverMapClusterOptions) {
         clusterOptions = options
         cacheScreenDistance(options.mergeStrategy.willMergedScreenDistance)
         updateAfterAnimationInvalidateDelay(options.animationDuration)
+        if (isRefreshSuspended) {
+            return
+        }
         rebuildClusterer()
+    }
+
+    fun onCameraPositionChanged(zoom: Double) {
+        val previousZoom = lastObservedCameraZoom
+        lastObservedCameraZoom = zoom
+
+        if (!::clusterOptions.isInitialized ||
+            !clusterOptions.deferRefreshOnCameraZoomUntilResume ||
+            previousZoom == null ||
+            kotlin.math.abs(zoom - previousZoom) < 0.001
+        ) {
+            return
+        }
+
+        setRefreshSuspended(true)
     }
 
     private fun cacheScreenDistance(willMergedScreenDistance: Map<NRange<Int>, Double>) {
@@ -83,6 +104,40 @@ internal class ClusteringController(
         suppressRelease = false
     }
 
+    fun setRefreshSuspended(suspended: Boolean) {
+        if (suspended == isRefreshSuspended) return
+
+        if (suspended) {
+            suspendedClusterOverlays =
+                overlayController.getOverlays(NOverlayType.CLUSTERABLE_MARKER)
+            isRefreshSuspended = true
+
+            if (::clusterer.isInitialized) {
+                suppressRelease = true
+                clusterer.map = null
+                suppressRelease = false
+            }
+            return
+        }
+
+        val previousOverlays = suspendedClusterOverlays
+        suspendedClusterOverlays = emptyMap()
+        isRefreshSuspended = false
+
+        rebuildClusterer()
+        pruneSuspendedOverlays(previousOverlays)
+        scheduleInvalidateView()
+    }
+
+    private fun pruneSuspendedOverlays(previousOverlays: Map<NOverlayInfo, Overlay>) {
+        for ((info, oldOverlay) in previousOverlays) {
+            val currentOverlay = overlayController.getOverlay(info)
+            if (currentOverlay === oldOverlay) {
+                overlayController.deleteOverlay(info)
+            }
+        }
+    }
+
     // maybe caused by TLHC frame copy failed
     private fun scheduleInvalidateView() {
         nowViewInvalidationRunnable?.let { nowHandler.removeCallbacks(it) }
@@ -103,6 +158,12 @@ internal class ClusteringController(
     fun addClusterableMarkerAll(markers: List<NClusterableMarker>) {
         val newMarkers: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
+
+        if (isRefreshSuspended) {
+            clusterableMarkers.clear()
+            clusterableMarkers.putAll(newMarkers)
+            return
+        }
 
         // If clusterer not yet initialized, do full build
         if (!::clusterer.isInitialized) {
@@ -169,6 +230,11 @@ internal class ClusteringController(
     fun deleteClusterableMarker(overlayInfo: NOverlayInfo) {
         val clusterOverlayInfo = NClusterableMarkerInfo(overlayInfo.id, mapOf(), LatLng.INVALID)
         clusterableMarkers.remove(clusterOverlayInfo)
+
+        if (isRefreshSuspended) {
+            return
+        }
+
         if (::clusterer.isInitialized) {
             clusterer.remove(clusterOverlayInfo)
         } else {
@@ -178,6 +244,11 @@ internal class ClusteringController(
 
     fun clearClusterableMarker() {
         clusterableMarkers.clear()
+
+        if (isRefreshSuspended) {
+            return
+        }
+
         overlayController.clearOverlays(NOverlayType.CLUSTERABLE_MARKER)
         rebuildClusterer()
     }

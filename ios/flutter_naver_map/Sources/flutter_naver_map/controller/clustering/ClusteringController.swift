@@ -18,6 +18,9 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     private var clusterableMarkers: [NClusterableMarkerInfo: NClusterableMarker] = [:]
     private var mergedScreenDistanceCacheArray: [Double] = Array(repeating: NMC_DEFAULT_SCREEN_DISTANCE, count: 24) // idx: zoom, distance
     private var suppressRelease = false
+    private var isRefreshSuspended = false
+    private var suspendedClusterOverlays: [NOverlayInfo: NMFOverlay] = [:]
+    private var lastObservedCameraZoom: Double?
     private lazy var clusterMarkerUpdate = ClusterMarkerUpdater(callback: { [weak self] info, marker in
         self?.onClusterMarkerUpdate(info, marker)
     })
@@ -28,7 +31,20 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     func updateClusterOptions(_ options: NaverMapClusterOptions) {
         clusterOptions = options
         cacheScreenDistance(options.mergeStrategy.willMergedScreenDistance)
+        if isRefreshSuspended { return }
         rebuildClusterer()
+    }
+
+    func onCameraPositionChanged(zoom: Double) {
+        let previousZoom = lastObservedCameraZoom
+        lastObservedCameraZoom = zoom
+
+        guard clusterOptions != nil,
+              clusterOptions.deferRefreshOnCameraZoomUntilResume,
+              let previousZoom,
+              abs(zoom - previousZoom) >= 0.001 else { return }
+
+        setRefreshSuspended(true)
     }
     
     private func cacheScreenDistance(_ willMergedScreenDistance: Dictionary<NRange<Int>, Double>) {
@@ -69,9 +85,47 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         clusterer = newClusterer
     }
 
+    func setRefreshSuspended(_ suspended: Bool) {
+        if suspended == isRefreshSuspended { return }
+
+        if suspended {
+            suspendedClusterOverlays = overlayController.getOverlays(type: .clusterableMarker)
+            isRefreshSuspended = true
+
+            if let currentClusterer = clusterer {
+                suppressRelease = true
+                currentClusterer.mapView = nil
+                suppressRelease = false
+            }
+            return
+        }
+
+        let previousOverlays = suspendedClusterOverlays
+        suspendedClusterOverlays = [:]
+        isRefreshSuspended = false
+
+        rebuildClusterer()
+        pruneSuspendedOverlays(previousOverlays)
+    }
+
+    private func pruneSuspendedOverlays(_ previousOverlays: [NOverlayInfo: NMFOverlay]) {
+        for (info, oldOverlay) in previousOverlays {
+            let currentOverlay = overlayController.getOverlay(info: info)
+            if currentOverlay === oldOverlay {
+                overlayController.deleteOverlay(info: info)
+            }
+        }
+    }
+
     func addClusterableMarkerAll(_ markers: [NClusterableMarker]) {
         let newMarkers: [NClusterableMarkerInfo: NClusterableMarker]
         = Dictionary(uniqueKeysWithValues: markers.map { ($0.clusterInfo, $0) })
+
+        if isRefreshSuspended {
+            clusterableMarkers.removeAll()
+            clusterableMarkers.merge(newMarkers, uniquingKeysWith: { $1 })
+            return
+        }
 
         // If clusterer not yet initialized, do full build
         guard let currentClusterer = clusterer else {
@@ -141,6 +195,11 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     func deleteClusterableMarker(_ overlayInfo: NOverlayInfo) {
         let clusterableOverlayInfo = NClusterableMarkerInfo(id: overlayInfo.id, tags: [:], position: NMGLatLng.invalid())
         clusterableMarkers.removeValue(forKey: clusterableOverlayInfo)
+
+        if isRefreshSuspended {
+            return
+        }
+
         if let currentClusterer = clusterer {
             currentClusterer.remove(clusterableOverlayInfo)
         } else {
@@ -150,6 +209,11 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
 
     func clearClusterableMarker() {
         clusterableMarkers.removeAll()
+
+        if isRefreshSuspended {
+            return
+        }
+
         overlayController.clearOverlays(type: .clusterableMarker)
         rebuildClusterer()
     }
