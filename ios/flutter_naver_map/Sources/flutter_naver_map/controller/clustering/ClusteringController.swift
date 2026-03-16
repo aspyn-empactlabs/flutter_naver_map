@@ -104,7 +104,6 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
 
         rebuildClusterer()
         scheduleSuspendedOverlayPrune(previousOverlays)
-        naverMapView.forceRefresh()
     }
 
     private func scheduleSuspendedOverlayPrune(_ previousOverlays: [NOverlayInfo: NMFOverlay]) {
@@ -118,7 +117,6 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
             self.detachStandaloneOverlays(self.pendingPruneOverlays)
             self.pendingPruneOverlays = [:]
             self.suspendedOverlayPruneWorkItem = nil
-            self.naverMapView.forceRefresh()
         }
 
         suspendedOverlayPruneWorkItem = workItem
@@ -134,7 +132,6 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
 
         detachStandaloneOverlays(pendingPruneOverlays)
         pendingPruneOverlays = [:]
-        naverMapView.forceRefresh()
     }
 
     private func detachStandaloneOverlays(_ overlays: [NOverlayInfo: NMFOverlay]) {

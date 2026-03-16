@@ -42,11 +42,10 @@ internal class NaverMapController(
     private val channel: MethodChannel,
     private val applicationContext: Context,
     private val overlayController: OverlayHandler,
-    viewInvalidator: () -> Unit,
 ) : NaverMapControlSender, NaverMapControlHandler {
     private var naverMapViewOptions: NaverMapViewOptions? = null
     private val clusteringController =
-        ClusteringController(naverMap, overlayController, channel::invokeMethod, viewInvalidator)
+        ClusteringController(naverMap, overlayController, channel::invokeMethod)
 
     init {
         overlayController.initializeLocationOverlay(naverMap.locationOverlay)

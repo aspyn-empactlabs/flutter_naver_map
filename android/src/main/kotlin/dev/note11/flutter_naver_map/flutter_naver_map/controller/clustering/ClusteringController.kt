@@ -26,7 +26,6 @@ internal class ClusteringController(
     private val naverMap: NaverMap,
     private val overlayController: OverlayHandler,
     private val messageSender: (method: String, args: Any) -> Unit,
-    private val viewInvalidator: () -> Unit,
 ) : MarkerManager {
     private lateinit var clusterOptions: NaverMapClusterOptions
 
@@ -39,7 +38,6 @@ internal class ClusteringController(
     private var suspendedClusterOverlays: Map<NOverlayInfo, Overlay> = emptyMap()
 
     private val nowHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
-    private var nowViewInvalidationRunnable: Runnable? = null
     private var suspendedOverlayPruneRunnable: Runnable? = null
     private var afterAnimationInvalidateDelay: Long = 80L
     private var lastObservedCameraZoom: Double? = null
@@ -125,7 +123,6 @@ internal class ClusteringController(
 
         rebuildClusterer()
         scheduleSuspendedOverlayPrune(previousOverlays)
-        scheduleInvalidateView()
     }
 
     private fun scheduleSuspendedOverlayPrune(previousOverlays: Map<NOverlayInfo, Overlay>) {
@@ -137,7 +134,6 @@ internal class ClusteringController(
             try {
                 detachStandaloneOverlays(pendingPruneOverlays)
                 pendingPruneOverlays = emptyMap()
-                viewInvalidator.invoke()
             } finally {
                 suspendedOverlayPruneRunnable = null
             }
@@ -156,26 +152,12 @@ internal class ClusteringController(
 
         detachStandaloneOverlays(pendingPruneOverlays)
         pendingPruneOverlays = emptyMap()
-        viewInvalidator.invoke()
     }
 
     private fun detachStandaloneOverlays(overlays: Map<NOverlayInfo, Overlay>) {
         for ((_, overlay) in overlays) {
             overlay.map = null
         }
-    }
-
-    // maybe caused by TLHC frame copy failed
-    private fun scheduleInvalidateView() {
-        nowViewInvalidationRunnable?.let { nowHandler.removeCallbacks(it) }
-        nowViewInvalidationRunnable = Runnable {
-            try {
-                viewInvalidator.invoke()
-            } finally {
-                nowViewInvalidationRunnable = null
-            }
-        }
-        nowHandler.postDelayed(nowViewInvalidationRunnable!!, afterAnimationInvalidateDelay)
     }
 
     private fun updateAfterAnimationInvalidateDelay(animationDuration: Long) {
@@ -289,7 +271,6 @@ internal class ClusteringController(
         if (isRefreshSuspended) return
 
         sendClusterMarkerEvent(info)
-        scheduleInvalidateView()
     }
 
     private fun sendClusterMarkerEvent(info: NClusterInfo) {
@@ -315,17 +296,10 @@ internal class ClusteringController(
     private fun updateVisibleMarkers(
         markers: Map<NClusterableMarkerInfo, NClusterableMarker>,
     ) {
-        var didUpdateVisibleMarker = false
-
         for ((info, clusterableMarker) in markers) {
             val currentOverlay =
                 overlayController.getOverlay(info.messageOverlayInfo) as? Marker ?: continue
             overlayController.saveOverlayWithAddable(clusterableMarker.wrappedMarker, currentOverlay)
-            didUpdateVisibleMarker = true
-        }
-
-        if (didUpdateVisibleMarker) {
-            scheduleInvalidateView()
         }
     }
 
@@ -343,7 +317,6 @@ internal class ClusteringController(
         val nClusterableMarker = clusterableMarkerInfo.tag as NClusterableMarker
         val nMarker = nClusterableMarker.wrappedMarker
         overlayController.saveOverlayWithAddable(nMarker, marker)
-        scheduleInvalidateView()
     }
 
 //    private fun distanceStrategy(zoom: Int, node: Node, node1: Node): Double {
