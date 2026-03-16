@@ -116,6 +116,8 @@ internal class ClusteringController(
                 suppressRelease = true
                 clusterer.map = null
                 suppressRelease = false
+                restoreSuspendedOverlays(suspendedClusterOverlays)
+                scheduleInvalidateView()
             }
             return
         }
@@ -127,6 +129,12 @@ internal class ClusteringController(
         rebuildClusterer()
         pruneSuspendedOverlays(previousOverlays)
         scheduleInvalidateView()
+    }
+
+    private fun restoreSuspendedOverlays(overlays: Map<NOverlayInfo, Overlay>) {
+        for ((_, overlay) in overlays) {
+            overlay.map = naverMap
+        }
     }
 
     private fun pruneSuspendedOverlays(previousOverlays: Map<NOverlayInfo, Overlay>) {
