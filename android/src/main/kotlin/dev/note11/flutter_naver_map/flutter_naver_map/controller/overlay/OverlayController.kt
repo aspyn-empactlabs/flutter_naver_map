@@ -103,6 +103,12 @@ internal class OverlayController(
         return filteredOverlays { it.type == type }.toMap()
     }
 
+    override fun takeOverlays(type: NOverlayType): Map<NOverlayInfo, Overlay> {
+        val takenOverlays = filteredOverlays { it.type == type }.toMap()
+        takenOverlays.keys.forEach(overlays::remove)
+        return takenOverlays
+    }
+
     private fun filteredOverlays(predicate: (info: NOverlayInfo) -> Boolean)
             : Map<NOverlayInfo, Overlay> = overlays.filter { predicate.invoke(it.key) }
 
