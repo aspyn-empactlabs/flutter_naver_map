@@ -21,6 +21,8 @@ internal interface OverlayHandler {
 
     fun clearOverlays(type: NOverlayType)
 
+    fun getOverlays(type: NOverlayType): Map<NOverlayInfo, Overlay>
+
     fun initializeLocationOverlay(overlay: LocationOverlay)
 
     fun <T : Overlay> saveOverlayWithAddable(

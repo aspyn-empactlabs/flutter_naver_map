@@ -181,6 +181,11 @@ internal class NaverMapController: NaverMapControlSender, NaverMapControlHandler
         mapView.forceRefresh()
         onSuccess(nil)
     }
+
+    func setClusterRefreshSuspended(suspended: Bool, onSuccess: @escaping (Any?) -> Void) {
+        clusteringController.setRefreshSuspended(suspended)
+        onSuccess(nil)
+    }
     
     func updateOptions(options: Dictionary<String, Any?>, onSuccess: @escaping (Any?) -> ()) {
         naverMapViewOptions = NaverMapViewOptions.fromMessageable(options)
@@ -245,6 +250,7 @@ internal class NaverMapController: NaverMapControlSender, NaverMapControlHandler
     
     func onCameraChange(cameraUpdateReason: Int, animated: Bool) {
         let cameraPosition = mapView.cameraPosition
+        clusteringController.onCameraPositionChanged(zoom: cameraPosition.zoom)
         channel.invokeMethod("onCameraChange", arguments: [
             "reason": cameraUpdateReason,
             "animated": animated,

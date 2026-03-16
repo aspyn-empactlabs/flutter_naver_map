@@ -242,6 +242,11 @@ internal class NaverMapController(
         onSuccess()
     }
 
+    override fun setClusterRefreshSuspended(suspended: Boolean, onSuccess: () -> Unit) {
+        clusteringController.setRefreshSuspended(suspended)
+        onSuccess()
+    }
+
     override fun updateOptions(rawOptions: Map<String, Any?>, onSuccess: () -> Unit) {
         naverMapViewOptions = NaverMapViewOptions.updateNaverMapFromMessageable(
             naverMap, rawOptions, getCustomStyleCallback()
@@ -316,6 +321,7 @@ internal class NaverMapController(
 
     override fun onCameraChange(cameraUpdateReason: Int, animated: Boolean) {
         val cameraPosition = naverMap.cameraPosition
+        clusteringController.onCameraPositionChanged(cameraPosition.zoom)
         channel.invokeMethod(
             "onCameraChange", mapOf(
                 "reason" to cameraUpdateReason,
