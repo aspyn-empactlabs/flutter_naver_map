@@ -21,6 +21,8 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     private var isRefreshSuspended = false
     private var suspendedClusterOverlays: [NOverlayInfo: NMFOverlay] = [:]
     private var lastObservedCameraZoom: Double?
+    private var suspendedOverlayPruneWorkItem: DispatchWorkItem?
+    private var pendingPruneOverlays: [NOverlayInfo: NMFOverlay] = [:]
     private lazy var clusterMarkerUpdate = ClusterMarkerUpdater(callback: { [weak self] info, marker in
         self?.onClusterMarkerUpdate(info, marker)
     })
@@ -65,6 +67,7 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         builder.tagMergeStrategy = self
         builder.minIndexingZoom = 0
         builder.maxIndexingZoom = 0
+        builder.updateOnChange = false
         builder.markerManager = self
         builder.clusterMarkerUpdater = clusterMarkerUpdate
         builder.leafMarkerUpdater = clusterableMarkerUpdate
@@ -89,16 +92,9 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         if suspended == isRefreshSuspended { return }
 
         if suspended {
-            suspendedClusterOverlays = overlayController.getOverlays(type: .clusterableMarker)
+            flushPendingOverlayPrune()
+            suspendedClusterOverlays = overlayController.takeOverlays(type: .clusterableMarker)
             isRefreshSuspended = true
-
-            if let currentClusterer = clusterer {
-                suppressRelease = true
-                currentClusterer.mapView = nil
-                suppressRelease = false
-                restoreSuspendedOverlays(suspendedClusterOverlays)
-                naverMapView.forceRefresh()
-            }
             return
         }
 
@@ -107,22 +103,43 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
         isRefreshSuspended = false
 
         rebuildClusterer()
-        pruneSuspendedOverlays(previousOverlays)
+        scheduleSuspendedOverlayPrune(previousOverlays)
         naverMapView.forceRefresh()
     }
 
-    private func restoreSuspendedOverlays(_ overlays: [NOverlayInfo: NMFOverlay]) {
-        for (_, overlay) in overlays {
-            overlay.mapView = naverMapView
+    private func scheduleSuspendedOverlayPrune(_ previousOverlays: [NOverlayInfo: NMFOverlay]) {
+        guard !previousOverlays.isEmpty else { return }
+
+        pendingPruneOverlays = previousOverlays
+        suspendedOverlayPruneWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.detachStandaloneOverlays(self.pendingPruneOverlays)
+            self.pendingPruneOverlays = [:]
+            self.suspendedOverlayPruneWorkItem = nil
+            self.naverMapView.forceRefresh()
         }
+
+        suspendedOverlayPruneWorkItem = workItem
+        let delay = max(Double(clusterOptions?.animationDuration ?? 0) * 0.001, 0.12)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    private func pruneSuspendedOverlays(_ previousOverlays: [NOverlayInfo: NMFOverlay]) {
-        for (info, oldOverlay) in previousOverlays {
-            let currentOverlay = overlayController.getOverlay(info: info)
-            if currentOverlay === oldOverlay {
-                overlayController.deleteOverlay(info: info)
-            }
+    private func flushPendingOverlayPrune() {
+        suspendedOverlayPruneWorkItem?.cancel()
+        suspendedOverlayPruneWorkItem = nil
+
+        guard !pendingPruneOverlays.isEmpty else { return }
+
+        detachStandaloneOverlays(pendingPruneOverlays)
+        pendingPruneOverlays = [:]
+        naverMapView.forceRefresh()
+    }
+
+    private func detachStandaloneOverlays(_ overlays: [NOverlayInfo: NMFOverlay]) {
+        for (_, overlay) in overlays {
+            overlay.mapView = nil
         }
     }
 
@@ -229,8 +246,8 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     
     private func onClusterMarkerUpdate(_ clusterMarkerInfo: NMCClusterMarkerInfo, _ marker: NMFMarker) {
         guard let info = clusterMarkerInfo.tag as? NClusterInfo else { return }
-//        overlayController.saveOverlay(overlay: marker, info: info.markerInfo.messageOverlayInfo)
         marker.hidden = true
+        if isRefreshSuspended { return }
         sendClusterMarkerEvent(info: info)
     }
     
@@ -316,6 +333,11 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     }
 
     private func onClusterableMarkerUpdate(_ clusterableMarkerInfo: NMCLeafMarkerInfo, _ marker: NMFMarker) {
+        if isRefreshSuspended {
+            marker.hidden = true
+            return
+        }
+
         marker.iconImage = NMF_MARKER_IMAGE_BLACK
        let nClusterableMarker: NClusterableMarker = clusterableMarkerInfo.tag as! NClusterableMarker
        let nMarker: NMarker = nClusterableMarker.wrappedOverlay
@@ -354,6 +376,11 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     
     func retainMarker(_ info: NMCMarkerInfo) -> NMFMarker? {
         let marker = NMFMarker(position: info.position)
+        if isRefreshSuspended {
+            marker.hidden = true
+            return marker
+        }
+
         let data = info.tag
         switch data {
 //         case let data as NClusterableMarker:
@@ -368,7 +395,7 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     }
     
     func releaseMarker(_ info: NMCMarkerInfo, _ marker: NMFMarker) {
-        if suppressRelease { return }
+        if suppressRelease || isRefreshSuspended { return }
         let data = info.tag
         switch data {
         case let data as NClusterableMarker:
@@ -381,6 +408,7 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
     }
     
     func dispose() {
+        flushPendingOverlayPrune()
         clusterer?.mapView = nil
         clusterer?.clear()
         clusterer = nil
