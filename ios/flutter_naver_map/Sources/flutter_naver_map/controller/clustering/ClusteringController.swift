@@ -96,6 +96,8 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
                 suppressRelease = true
                 currentClusterer.mapView = nil
                 suppressRelease = false
+                restoreSuspendedOverlays(suspendedClusterOverlays)
+                naverMapView.forceRefresh()
             }
             return
         }
@@ -106,6 +108,13 @@ internal class ClusteringController: NMCDefaultClusterMarkerUpdater, NMCThreshol
 
         rebuildClusterer()
         pruneSuspendedOverlays(previousOverlays)
+        naverMapView.forceRefresh()
+    }
+
+    private func restoreSuspendedOverlays(_ overlays: [NOverlayInfo: NMFOverlay]) {
+        for (_, overlay) in overlays {
+            overlay.mapView = naverMapView
+        }
     }
 
     private func pruneSuspendedOverlays(_ previousOverlays: [NOverlayInfo: NMFOverlay]) {
