@@ -78,6 +78,10 @@ internal class OverlayController: OverlaySender, OverlayHandler, ArrowheadPathOv
         filteredOverlays({ $0.type == type }).forEach(deleteOverlay)
     }
 
+    func getOverlays(type: NOverlayType) -> Dictionary<NOverlayInfo, NMFOverlay> {
+        filteredOverlays({ $0.type == type })
+    }
+
     private func filteredOverlays(_ predicate: (_ info: NOverlayInfo) -> Bool) -> Dictionary<NOverlayInfo, NMFOverlay> {
         overlays.filter { key, value in
             predicate(key)

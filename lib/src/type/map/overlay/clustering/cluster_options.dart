@@ -21,40 +21,60 @@ class NaverMapClusteringOptions with NMessageableWithMap {
   ///
   /// 기본 값은 null이며, 이때는 기본적으로 [NaverMapClusteringOptions.defaultClusterMarkerBuilder]가 실행됩니다.
   final Function(NClusterInfo info, NClusterMarker clusterMarker)?
-      clusterMarkerBuilder;
+  clusterMarkerBuilder;
+
+  /// zoom 변경 중에는 현재 클러스터 표시를 유지하고,
+  /// 앱이 [NaverMapController.setClusterRefreshSuspended]로 재개를 호출할 때까지
+  /// native clusterer의 갱신을 미룹니다.
+  ///
+  /// `onCameraIdle -> 데이터 재조회 -> addOverlayAll(full set)` 흐름과 결합해
+  /// zoom 1회당 최종 클러스터 갱신을 1회로 맞추고 싶을 때 사용합니다.
+  final bool deferRefreshOnCameraZoomUntilResume;
 
   const NaverMapClusteringOptions({
     this.enableZoomRange = defaultClusteringZoomRange,
     this.animationDuration = const Duration(milliseconds: 300),
     this.mergeStrategy = const NClusterMergeStrategy(),
     this.clusterMarkerBuilder,
+    this.deferRefreshOnCameraZoomUntilResume = false,
   });
 
   void _handleClusterMarkerBuilder(
-      Object args, _NOverlayController overlayController) {
+    Object args,
+    _NOverlayController overlayController,
+  ) {
     final info = NClusterInfo._fromMessageable(args as Map);
-    final clusterMarker =
-        NClusterMarker._(id: info._id, position: info.position);
-    (clusterMarkerBuilder ?? defaultClusterMarkerBuilder)
-        .call(info, clusterMarker);
+    final clusterMarker = NClusterMarker._(
+      id: info._id,
+      position: info.position,
+    );
+    (clusterMarkerBuilder ?? defaultClusterMarkerBuilder).call(
+      info,
+      clusterMarker,
+    );
     clusterMarker._apply(overlayController);
   }
 
   static void defaultClusterMarkerBuilder(
-      NClusterInfo info, NClusterMarker clusterMarker) {
-    clusterMarker.setCaption(NOverlayCaption(
-      text: info.size.toString(),
-      color: Colors.white,
-      haloColor: Colors.transparent,
-    ));
+    NClusterInfo info,
+    NClusterMarker clusterMarker,
+  ) {
+    clusterMarker.setCaption(
+      NOverlayCaption(
+        text: info.size.toString(),
+        color: Colors.white,
+        haloColor: Colors.transparent,
+      ),
+    );
   }
 
   @override
   NPayload toNPayload() => NPayload.make({
-        "enableZoomRange": enableZoomRange,
-        "animationDuration": animationDuration.inMilliseconds,
-        "mergeStrategy": mergeStrategy,
-      });
+    "enableZoomRange": enableZoomRange,
+    "animationDuration": animationDuration.inMilliseconds,
+    "mergeStrategy": mergeStrategy,
+    "deferRefreshOnCameraZoomUntilResume": deferRefreshOnCameraZoomUntilResume,
+  });
 
   @override
   String toString() => "$runtimeType: ${toNPayload().map}";
@@ -64,18 +84,21 @@ class NaverMapClusteringOptions with NMessageableWithMap {
     Duration? animationDuration,
     NClusterMergeStrategy? mergeStrategy,
     Function(NClusterInfo info, NClusterMarker clusterMarker)?
-        clusterMarkerBuilder,
-  }) =>
-      NaverMapClusteringOptions(
-        enableZoomRange: enableZoomRange ?? this.enableZoomRange,
-        animationDuration: animationDuration ?? this.animationDuration,
-        mergeStrategy: mergeStrategy ?? this.mergeStrategy,
-        clusterMarkerBuilder: clusterMarkerBuilder ?? this.clusterMarkerBuilder,
-      );
+    clusterMarkerBuilder,
+    bool? deferRefreshOnCameraZoomUntilResume,
+  }) => NaverMapClusteringOptions(
+    enableZoomRange: enableZoomRange ?? this.enableZoomRange,
+    animationDuration: animationDuration ?? this.animationDuration,
+    mergeStrategy: mergeStrategy ?? this.mergeStrategy,
+    clusterMarkerBuilder: clusterMarkerBuilder ?? this.clusterMarkerBuilder,
+    deferRefreshOnCameraZoomUntilResume:
+        deferRefreshOnCameraZoomUntilResume ??
+        this.deferRefreshOnCameraZoomUntilResume,
+  );
 
   static const defaultClusteringZoomRange = NInclusiveRange(0, 20);
 
-//region equals & hashCodes
+  //region equals & hashCodes
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -83,7 +106,9 @@ class NaverMapClusteringOptions with NMessageableWithMap {
           runtimeType == other.runtimeType &&
           enableZoomRange == other.enableZoomRange &&
           animationDuration == other.animationDuration &&
-          mergeStrategy == other.mergeStrategy;
+          mergeStrategy == other.mergeStrategy &&
+          deferRefreshOnCameraZoomUntilResume ==
+              other.deferRefreshOnCameraZoomUntilResume;
 
   // clusterMarkerBuilder is Unstable for equality (lambda)
 
@@ -91,7 +116,8 @@ class NaverMapClusteringOptions with NMessageableWithMap {
   int get hashCode =>
       enableZoomRange.hashCode ^
       animationDuration.hashCode ^
-      mergeStrategy.hashCode;
-// clusterMarkerBuilder is Unstable for equality (lambda)
-//endregion
+      mergeStrategy.hashCode ^
+      deferRefreshOnCameraZoomUntilResume.hashCode;
+  // clusterMarkerBuilder is Unstable for equality (lambda)
+  //endregion
 }

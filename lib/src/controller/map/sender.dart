@@ -7,8 +7,9 @@ abstract class _NaverMapControlSender {
   Future<bool> updateCamera(NCameraUpdate cameraUpdate);
 
   /// 카메라가 이동 중일 때, 카메라 이동을 취소 시킵니다.
-  Future<void> cancelTransitions(
-      {NCameraUpdateReason reason = NCameraUpdateReason.developer});
+  Future<void> cancelTransitions({
+    NCameraUpdateReason reason = NCameraUpdateReason.developer,
+  });
 
   /// 카메라의 위치를 가져오는 메서드입니다.
   /// 네이티브 호출 비용이 발생할 수 있으니, 정확한 위치가 보장되어야 하는 것이 아니라면 [nowCameraPosition]을 대신 사용하세요.
@@ -99,6 +100,12 @@ abstract class _NaverMapControlSender {
 
   /// 지도를 강제로 새로고침합니다.
   Future<void> forceRefresh();
+
+  /// 클러스터블 마커의 렌더 갱신을 일시 중단하거나 재개합니다.
+  ///
+  /// zoom 중에는 기존 클러스터 상태를 유지한 채로 앱의 full-set sync를 기다리고,
+  /// 재개 시점에 한 번만 native clusterer를 commit하는 용도로 사용합니다.
+  Future<void> setClusterRefreshSuspended(bool suspended);
 
   /*
     --- internal methods ---

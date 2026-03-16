@@ -13,6 +13,8 @@ internal protocol OverlayHandler {
     func clearOverlays()
 
     func clearOverlays(type: NOverlayType)
+
+    func getOverlays(type: NOverlayType) -> Dictionary<NOverlayInfo, NMFOverlay>
     
     func initializeLocationOverlay(overlay: NMFLocationOverlay)
 
