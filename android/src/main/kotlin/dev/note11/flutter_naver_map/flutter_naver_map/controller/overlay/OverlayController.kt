@@ -328,7 +328,7 @@ internal class OverlayController(
 
     override fun setCaption(marker: Marker, rawCaption: Any?) {
         if (rawCaption == null) {
-            marker.setCaptionText(null)
+            marker.setCaptionText("")
             return
         }
         NOverlayCaption.fromMessageable(rawCaption).run {
@@ -346,7 +346,7 @@ internal class OverlayController(
 
     override fun setSubCaption(marker: Marker, rawSubCaption: Any?) {
         if (rawSubCaption == null) {
-            marker.setSubCaptionText(null)
+            marker.setSubCaptionText("")
             return
         }
         NOverlayCaption.fromMessageable(rawSubCaption).run {
