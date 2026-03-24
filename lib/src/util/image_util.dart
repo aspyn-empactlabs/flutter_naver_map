@@ -1,6 +1,6 @@
 import "dart:convert" show utf8;
 import "dart:developer" show log;
-import "dart:io" show Directory, File, FileSystemException;
+import "dart:io" show Directory, File, FileSystemEntity, FileSystemException;
 import "dart:typed_data" show Uint8List;
 
 import "package:crypto/crypto.dart" show sha256;
@@ -12,10 +12,16 @@ class ImageUtil {
 
   static Future<String> saveImage(Uint8List bytes, [String? cacheKey]) async {
     final key = cacheKey ?? _generateImageHashFromBytes(bytes);
-    late final String path;
+    late String path;
     if (_hashPathMap.containsKey(key)) {
       path = _hashPathMap[key]!;
-      log("이미 저장된 이미지입니다. 저장된 path를 반환합니다. $path", name: "ImageSaveUtil");
+      if (await File(path).exists()) {
+        log("이미 저장된 이미지입니다. 저장된 path를 반환합니다. $path", name: "ImageSaveUtil");
+      } else {
+        path = await _makeFile(key, bytes);
+        _hashPathMap[key] = path;
+        log("기존 캐시 path가 사라져 이미지를 다시 저장합니다. $path", name: "ImageSaveUtil");
+      }
     } else {
       path = await _makeFile(key, bytes);
       _hashPathMap[key] = path;
@@ -47,13 +53,28 @@ class ImageUtil {
 
   /* ----- TempDir ----- */
   static Directory? _imageTempDir;
+  static Future<Directory>? _imageTempDirFuture;
 
   static Future<Directory> _getDir() async {
-    if (_imageTempDir case Directory dir) return dir;
+    if (_imageTempDir case Directory dir) {
+      if (await dir.exists()) return dir;
+      _imageTempDir = null;
+      _imageTempDirFuture = null;
+    }
 
-    final imageTempDir = await _initTempDir();
-    _imageTempDir = imageTempDir;
-    return imageTempDir;
+    final future = _imageTempDirFuture ??= _initTempDir().then((imageTempDir) {
+      _imageTempDir = imageTempDir;
+      return imageTempDir;
+    });
+
+    try {
+      return await future;
+    } catch (_) {
+      if (identical(_imageTempDirFuture, future)) {
+        _imageTempDirFuture = null;
+      }
+      rethrow;
+    }
   }
 
   static Future<Directory> _initTempDir() async {
@@ -61,7 +82,7 @@ class ImageUtil {
     final targetFolderDir = Directory("${tempDir.path}/$_newTempFolderPath");
     await _cleanUpLegacyTempDir(targetFolderDir);
     await _cleanUpPreviousTempDir(targetFolderDir);
-    final imageTempDirParent = await targetFolderDir.create();
+    final imageTempDirParent = await targetFolderDir.create(recursive: true);
     final imageTempDir = await imageTempDirParent.createTemp(_newPathPrefix);
     return imageTempDir;
   }
@@ -73,7 +94,7 @@ class ImageUtil {
     final previousCacheFolders = await previousCacheFolderStream.toList();
 
     for (final folder in previousCacheFolders) {
-      folder.delete(recursive: true); // not wait.
+      await _safeDelete(folder);
     }
   }
 
@@ -88,9 +109,17 @@ class ImageUtil {
       if (dir case Directory(:final path)) {
         final name = path.split("/").last;
         if (name.startsWith(_oldV1PathPrefix)) {
-          dir.delete(recursive: true); // not wait.
+          await _safeDelete(dir);
         }
       }
+    }
+  }
+
+  static Future<void> _safeDelete(FileSystemEntity entity) async {
+    try {
+      await entity.delete(recursive: true);
+    } on FileSystemException catch (e) {
+      log("캐시 정리 중 오류가 발생했습니다. 메시지: ${e.message}", name: "ImageSaveUtil");
     }
   }
 
