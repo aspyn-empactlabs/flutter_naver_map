@@ -1,6 +1,7 @@
+import "dart:async" show unawaited;
 import "dart:convert" show utf8;
 import "dart:developer" show log;
-import "dart:io" show Directory, File, FileSystemException;
+import "dart:io" show Directory, File, FileSystemEntity, FileSystemException;
 import "dart:typed_data" show Uint8List;
 
 import "package:crypto/crypto.dart" show sha256;
@@ -47,13 +48,28 @@ class ImageUtil {
 
   /* ----- TempDir ----- */
   static Directory? _imageTempDir;
+  static Future<Directory>? _pendingImageTempDir;
 
   static Future<Directory> _getDir() async {
-    if (_imageTempDir case Directory dir) return dir;
+    if (_imageTempDir case Directory dir) {
+      return dir;
+    }
+    if (_pendingImageTempDir case Future<Directory> pendingDir) {
+      return pendingDir;
+    }
 
-    final imageTempDir = await _initTempDir();
-    _imageTempDir = imageTempDir;
-    return imageTempDir;
+    final pendingDir = _initTempDir();
+    _pendingImageTempDir = pendingDir;
+
+    try {
+      final imageTempDir = await pendingDir;
+      _imageTempDir = imageTempDir;
+      return imageTempDir;
+    } finally {
+      if (identical(_pendingImageTempDir, pendingDir)) {
+        _pendingImageTempDir = null;
+      }
+    }
   }
 
   static Future<Directory> _initTempDir() async {
@@ -73,7 +89,7 @@ class ImageUtil {
     final previousCacheFolders = await previousCacheFolderStream.toList();
 
     for (final folder in previousCacheFolders) {
-      folder.delete(recursive: true); // not wait.
+      unawaited(_deleteEntryIfExists(folder));
     }
   }
 
@@ -88,9 +104,19 @@ class ImageUtil {
       if (dir case Directory(:final path)) {
         final name = path.split("/").last;
         if (name.startsWith(_oldV1PathPrefix)) {
-          dir.delete(recursive: true); // not wait.
+          unawaited(_deleteEntryIfExists(dir));
         }
       }
+    }
+  }
+
+  static Future<void> _deleteEntryIfExists(FileSystemEntity entry) async {
+    try {
+      if (await entry.exists()) {
+        await entry.delete(recursive: true);
+      }
+    } on FileSystemException catch (e) {
+      if (e.osError?.errorCode != 2) rethrow;
     }
   }
 

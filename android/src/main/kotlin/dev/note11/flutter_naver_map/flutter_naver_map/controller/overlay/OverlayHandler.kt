@@ -11,6 +11,8 @@ internal interface OverlayHandler {
 
     fun hasOverlay(info: NOverlayInfo): Boolean
 
+    fun getOverlay(info: NOverlayInfo): Overlay?
+
     fun saveOverlay(overlay: Overlay, info: NOverlayInfo)
 
     fun deleteOverlay(info: NOverlayInfo)
@@ -19,14 +21,16 @@ internal interface OverlayHandler {
 
     fun clearOverlays(type: NOverlayType)
 
+    fun getOverlays(type: NOverlayType): Map<NOverlayInfo, Overlay>
+
+    fun takeOverlays(type: NOverlayType): Map<NOverlayInfo, Overlay>
+
     fun initializeLocationOverlay(overlay: LocationOverlay)
 
     fun <T : Overlay> saveOverlayWithAddable(
         creator: AddableOverlay<T>,
         createdOverlay: T? = null,
     ): T {
-        if (hasOverlay(creator.info)) deleteOverlay(creator.info)
-
         val overlay =
             if (createdOverlay is T) creator.applyAtRawOverlay(createdOverlay)
             else creator.createMapOverlay()

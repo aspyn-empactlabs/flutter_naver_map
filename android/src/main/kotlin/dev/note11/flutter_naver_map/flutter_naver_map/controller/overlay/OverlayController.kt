@@ -59,13 +59,16 @@ internal class OverlayController(
 
     override fun saveOverlay(overlay: Overlay, info: NOverlayInfo) {
         info.saveAtOverlay(overlay)
-        detachOverlay(info)
+        val existingOverlay = overlays[info]
+        if (existingOverlay != null && existingOverlay !== overlay) {
+            detachOverlay(existingOverlay)
+        }
         overlays[info] = overlay
     }
 
     override fun hasOverlay(info: NOverlayInfo): Boolean = overlays.containsKey(info)
 
-    private fun getOverlay(info: NOverlayInfo): Overlay? = overlays[info]
+    override fun getOverlay(info: NOverlayInfo): Overlay? = overlays[info]
 
     override fun deleteOverlay(info: NOverlayInfo) {
         detachOverlay(info)
@@ -94,6 +97,16 @@ internal class OverlayController(
 
     override fun clearOverlays(type: NOverlayType) {
         filteredOverlays { it.type == type }.forEach(::deleteOverlay)
+    }
+
+    override fun getOverlays(type: NOverlayType): Map<NOverlayInfo, Overlay> {
+        return filteredOverlays { it.type == type }.toMap()
+    }
+
+    override fun takeOverlays(type: NOverlayType): Map<NOverlayInfo, Overlay> {
+        val takenOverlays = filteredOverlays { it.type == type }.toMap()
+        takenOverlays.keys.forEach(overlays::remove)
+        return takenOverlays
     }
 
     private fun filteredOverlays(predicate: (info: NOverlayInfo) -> Boolean)
@@ -313,7 +326,11 @@ internal class OverlayController(
         nSize.useAsPixelSize(marker::setWidth, marker::setHeight)
     }
 
-    override fun setCaption(marker: Marker, rawCaption: Any) {
+    override fun setCaption(marker: Marker, rawCaption: Any?) {
+        if (rawCaption == null) {
+            marker.setCaptionText("")
+            return
+        }
         NOverlayCaption.fromMessageable(rawCaption).run {
             useWithFunctions(
                 textFunc = marker::setCaptionText,
@@ -327,7 +344,11 @@ internal class OverlayController(
         }
     }
 
-    override fun setSubCaption(marker: Marker, rawSubCaption: Any) {
+    override fun setSubCaption(marker: Marker, rawSubCaption: Any?) {
+        if (rawSubCaption == null) {
+            marker.setSubCaptionText("")
+            return
+        }
         NOverlayCaption.fromMessageable(rawSubCaption).run {
             useWithFunctions(
                 textFunc = marker::setSubCaptionText,

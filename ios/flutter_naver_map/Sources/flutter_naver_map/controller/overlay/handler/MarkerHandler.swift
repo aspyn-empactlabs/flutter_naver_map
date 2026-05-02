@@ -20,9 +20,9 @@ internal protocol MarkerHandler: OverlayHandler {
 
     func setSize(_ marker: NMFMarker, rawSize: Any)
 
-    func setCaption(_ marker: NMFMarker, rawCaption: Any)
+    func setCaption(_ marker: NMFMarker, rawCaption: Any?)
 
-    func setSubCaption(_ marker: NMFMarker, rawSubCaption: Any)
+    func setSubCaption(_ marker: NMFMarker, rawSubCaption: Any?)
 
     func setCaptionAligns(_ marker: NMFMarker, rawCaptionAligns: Any)
 
@@ -63,8 +63,8 @@ internal extension MarkerHandler {
         case NMarker.angleName: setAngle(marker, rawAngle: args!)
         case NMarker.anchorName: setAnchor(marker, rawNPoint: args!)
         case NMarker.sizeName: setSize(marker, rawSize: args!)
-        case NMarker.captionName: setCaption(marker, rawCaption: args!)
-        case NMarker.subCaptionName: setSubCaption(marker, rawSubCaption: args!)
+        case NMarker.captionName: setCaption(marker, rawCaption: args)
+        case NMarker.subCaptionName: setSubCaption(marker, rawSubCaption: args)
         case NMarker.captionAlignsName: setCaptionAligns(marker, rawCaptionAligns: args!)
         case NMarker.captionOffsetName: setCaptionOffset(marker, rawDpOffset: args!)
         case NMarker.isCaptionPerspectiveEnabledName: setIsCaptionPerspectiveEnabled(marker, rawCaptionPerspectiveEnabled: args!)

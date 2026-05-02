@@ -78,7 +78,7 @@ internal class NaverMapView(
 
     private fun initializeMapController() {
         naverMapControlSender = NaverMapController(
-            naverMap, channel, flutterProvidedContext, overlayController, mapView::invalidate
+            naverMap, channel, flutterProvidedContext, overlayController
         ).apply {
             rawNaverMapOptionTempCache?.let { updateOptions(it.asNullableMap()) {} }
         }

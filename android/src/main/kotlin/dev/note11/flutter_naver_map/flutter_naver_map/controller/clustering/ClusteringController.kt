@@ -11,6 +11,7 @@ import com.naver.maps.map.clustering.*
 import com.naver.maps.map.clustering.Clusterer.ComplexBuilder
 import com.naver.maps.map.clustering.Clusterer.DEFAULT_SCREEN_DISTANCE
 import com.naver.maps.map.overlay.Marker
+import com.naver.maps.map.overlay.Overlay
 import com.naver.maps.map.util.MarkerIcons
 import dev.note11.flutter_naver_map.flutter_naver_map.controller.overlay.OverlayHandler
 import dev.note11.flutter_naver_map.flutter_naver_map.model.base.NRange
@@ -25,7 +26,6 @@ internal class ClusteringController(
     private val naverMap: NaverMap,
     private val overlayController: OverlayHandler,
     private val messageSender: (method: String, args: Any) -> Unit,
-    private val viewInvalidator: () -> Unit,
 ) : MarkerManager {
     private lateinit var clusterOptions: NaverMapClusterOptions
 
@@ -33,34 +33,40 @@ internal class ClusteringController(
 
     private val clusterableMarkers = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
     private val mergedScreenDistanceCacheArray = DoubleArray(24) // idx: zoom, distance
+    private var suppressRelease = false
+    private var isRefreshSuspended = false
+    private var suspendedClusterOverlays: Map<NOverlayInfo, Overlay> = emptyMap()
 
     private val nowHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
-    private var nowViewInvalidationRunnable: Runnable? = null
+    private var suspendedOverlayPruneRunnable: Runnable? = null
     private var afterAnimationInvalidateDelay: Long = 80L
+    private var lastObservedCameraZoom: Double? = null
+    private var pendingPruneOverlays: Map<NOverlayInfo, Overlay> = emptyMap()
 
     // first caller (change the running in instance init time)
     fun updateClusterOptions(options: NaverMapClusterOptions) {
         clusterOptions = options
-        if (::clusterer.isInitialized) clusterer.map = null
-
         cacheScreenDistance(options.mergeStrategy.willMergedScreenDistance)
-
-        val builder =
-            ComplexBuilder<NClusterableMarkerInfo>().applyEnableZoomLevel(options.enableZoomRange)
-                .maxScreenDistance(options.mergeStrategy.maxMergeableScreenDistance)
-                .animationDuration(options.animationDuration.toInt())
-//            .distanceStrategy(::distanceStrategy)
-                .thresholdStrategy(::thresholdStrategy).tagMergeStrategy(::tagMergeStrategy)
-                .clusterMarkerUpdater(::onClusterMarkerUpdate)
-                .leafMarkerUpdater(::onClusterableMarkerUpdate)
-                .markerManager(this).minIndexingZoom(0).maxIndexingZoom(0) // 해도 되는지 확인 필요
-
         updateAfterAnimationInvalidateDelay(options.animationDuration)
-
-        clusterer = builder.build().apply {
-            addAll(clusterableMarkers)
-            map = naverMap
+        if (isRefreshSuspended) {
+            return
         }
+        rebuildClusterer()
+    }
+
+    fun onCameraPositionChanged(zoom: Double) {
+        val previousZoom = lastObservedCameraZoom
+        lastObservedCameraZoom = zoom
+
+        if (!::clusterOptions.isInitialized ||
+            !clusterOptions.deferRefreshOnCameraZoomUntilResume ||
+            previousZoom == null ||
+            kotlin.math.abs(zoom - previousZoom) < 0.001
+        ) {
+            return
+        }
+
+        setRefreshSuspended(true)
     }
 
     private fun cacheScreenDistance(willMergedScreenDistance: Map<NRange<Int>, Double>) {
@@ -71,22 +77,87 @@ internal class ClusteringController(
         }
     }
 
-    private fun updateClusterer() {
-        clusterer.map = null
-        clusterer.map = naverMap
+    private fun buildClusterer(): Clusterer<NClusterableMarkerInfo> {
+        return ComplexBuilder<NClusterableMarkerInfo>()
+            .applyEnableZoomLevel(clusterOptions.enableZoomRange)
+            .maxScreenDistance(clusterOptions.mergeStrategy.maxMergeableScreenDistance)
+            .animationDuration(clusterOptions.animationDuration.toInt())
+            .updateOnChange(false)
+            .thresholdStrategy(::thresholdStrategy)
+            .tagMergeStrategy(::tagMergeStrategy)
+            .clusterMarkerUpdater(::onClusterMarkerUpdate)
+            .leafMarkerUpdater(::onClusterableMarkerUpdate)
+            .markerManager(this)
+            .minIndexingZoom(0)
+            .maxIndexingZoom(0)
+            .build()
     }
 
-    // maybe caused by TLHC frame copy failed
-    private fun scheduleInvalidateView() {
-        nowViewInvalidationRunnable?.let { nowHandler.removeCallbacks(it) }
-        nowViewInvalidationRunnable = Runnable {
+    private fun rebuildClusterer() {
+        val oldClusterer = if (::clusterer.isInitialized) clusterer else null
+
+        clusterer = buildClusterer().apply {
+            addAll(clusterableMarkers)
+            map = naverMap
+        }
+
+        suppressRelease = true
+        oldClusterer?.map = null
+        suppressRelease = false
+    }
+
+    fun setRefreshSuspended(suspended: Boolean) {
+        if (suspended == isRefreshSuspended) return
+
+        if (suspended) {
+            flushPendingOverlayPrune()
+            suspendedClusterOverlays =
+                overlayController.takeOverlays(NOverlayType.CLUSTERABLE_MARKER)
+            isRefreshSuspended = true
+            return
+        }
+
+        val previousOverlays = suspendedClusterOverlays
+        suspendedClusterOverlays = emptyMap()
+        isRefreshSuspended = false
+
+        rebuildClusterer()
+        scheduleSuspendedOverlayPrune(previousOverlays)
+    }
+
+    private fun scheduleSuspendedOverlayPrune(previousOverlays: Map<NOverlayInfo, Overlay>) {
+        if (previousOverlays.isEmpty()) return
+
+        pendingPruneOverlays = previousOverlays
+        suspendedOverlayPruneRunnable?.let(nowHandler::removeCallbacks)
+        suspendedOverlayPruneRunnable = Runnable {
             try {
-                viewInvalidator.invoke()
+                detachStandaloneOverlays(pendingPruneOverlays)
+                pendingPruneOverlays = emptyMap()
             } finally {
-                nowViewInvalidationRunnable = null
+                suspendedOverlayPruneRunnable = null
             }
         }
-        nowHandler.postDelayed(nowViewInvalidationRunnable!!, afterAnimationInvalidateDelay)
+        nowHandler.postDelayed(
+            suspendedOverlayPruneRunnable!!,
+            maxOf(afterAnimationInvalidateDelay, 120L),
+        )
+    }
+
+    private fun flushPendingOverlayPrune() {
+        suspendedOverlayPruneRunnable?.let(nowHandler::removeCallbacks)
+        suspendedOverlayPruneRunnable = null
+
+        if (pendingPruneOverlays.isEmpty()) return
+
+        detachStandaloneOverlays(pendingPruneOverlays)
+        pendingPruneOverlays = emptyMap()
+    }
+
+    private fun detachStandaloneOverlays(overlays: Map<NOverlayInfo, Overlay>) {
+        for ((_, overlay) in overlays) {
+            overlay.map = null
+        }
     }
 
     private fun updateAfterAnimationInvalidateDelay(animationDuration: Long) {
@@ -94,54 +165,158 @@ internal class ClusteringController(
     }
 
     fun addClusterableMarkerAll(markers: List<NClusterableMarker>) {
-        val markersWithTag: Map<NClusterableMarkerInfo, NClusterableMarker> =
+        val newMarkers: Map<NClusterableMarkerInfo, NClusterableMarker> =
             markers.associateBy { it.info }
-        clusterer.addAll(markersWithTag)
-        updateClusterer()
-        clusterableMarkers.putAll(markersWithTag)
+
+        if (isRefreshSuspended) {
+            clusterableMarkers.clear()
+            clusterableMarkers.putAll(newMarkers)
+            return
+        }
+
+        // If clusterer not yet initialized, do full build
+        if (!::clusterer.isInitialized) {
+            clusterableMarkers.clear()
+            clusterableMarkers.putAll(newMarkers)
+            rebuildClusterer()
+            return
+        }
+
+        val existingKeys = clusterableMarkers.keys.toSet()
+        val newKeys = newMarkers.keys.toSet()
+        val toRemove = existingKeys - newKeys
+        val toAdd = newMarkers.filterKeys { it !in existingKeys }
+        val toRecluster = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
+        val toUpdateVisibleOnly = mutableMapOf<NClusterableMarkerInfo, NClusterableMarker>()
+
+        for (key in existingKeys.intersect(newKeys)) {
+            val currentMarker = clusterableMarkers.getValue(key)
+            val nextMarker = newMarkers.getValue(key)
+
+            if (hasSameMarkerState(currentMarker, nextMarker)) continue
+
+            if (hasStructuralChange(currentMarker, nextMarker)) {
+                toRecluster[key] = nextMarker
+            } else {
+                toUpdateVisibleOnly[key] = nextMarker
+            }
+        }
+
+        if (toRemove.isEmpty() &&
+            toAdd.isEmpty() &&
+            toRecluster.isEmpty() &&
+            toUpdateVisibleOnly.isEmpty()
+        ) {
+            return
+        }
+
+        for (key in toRemove) {
+            clusterableMarkers.remove(key)
+            clusterer.remove(key)
+        }
+
+        for (key in toRecluster.keys) {
+            clusterableMarkers.remove(key)
+            clusterer.remove(key)
+        }
+
+        if (toAdd.isNotEmpty()) {
+            clusterableMarkers.putAll(toAdd)
+            clusterer.addAll(toAdd)
+        }
+
+        if (toRecluster.isNotEmpty()) {
+            clusterableMarkers.putAll(toRecluster)
+            clusterer.addAll(toRecluster)
+        }
+
+        if (toUpdateVisibleOnly.isNotEmpty()) {
+            clusterableMarkers.putAll(toUpdateVisibleOnly)
+            updateVisibleMarkers(toUpdateVisibleOnly)
+        }
     }
 
     fun deleteClusterableMarker(overlayInfo: NOverlayInfo) {
         val clusterOverlayInfo = NClusterableMarkerInfo(overlayInfo.id, mapOf(), LatLng.INVALID)
         clusterableMarkers.remove(clusterOverlayInfo)
-        clusterer.remove(clusterOverlayInfo)
-        overlayController.deleteOverlay(overlayInfo)
-        updateClusterer()
+
+        if (isRefreshSuspended) {
+            return
+        }
+
+        if (::clusterer.isInitialized) {
+            clusterer.remove(clusterOverlayInfo)
+        } else {
+            overlayController.deleteOverlay(overlayInfo)
+        }
     }
 
     fun clearClusterableMarker() {
         clusterableMarkers.clear()
-        clusterer.clear()
+
+        if (isRefreshSuspended) {
+            return
+        }
+
         overlayController.clearOverlays(NOverlayType.CLUSTERABLE_MARKER)
-        updateClusterer()
+        rebuildClusterer()
     }
 
     private fun onClusterMarkerUpdate(
         clusterMarkerInfo: ClusterMarkerInfo, marker: Marker,
     ) {
-        DefaultClusterMarkerUpdater().updateClusterMarker(clusterMarkerInfo, marker)
         val info = clusterMarkerInfo.tag as? NClusterInfo? ?: return
 
-//        overlayController.saveOverlay(marker, info.markerInfo.messageOverlayInfo)
         marker.isVisible = false
+        if (isRefreshSuspended) return
+
         sendClusterMarkerEvent(info)
-        scheduleInvalidateView()
     }
 
     private fun sendClusterMarkerEvent(info: NClusterInfo) {
         messageSender.invoke("clusterMarkerBuilder", info.toMessageable())
     }
 
+    private fun hasSameMarkerState(
+        currentMarker: NClusterableMarker,
+        nextMarker: NClusterableMarker,
+    ): Boolean {
+        return !hasStructuralChange(currentMarker, nextMarker) &&
+            currentMarker.wrappedMarker == nextMarker.wrappedMarker
+    }
+
+    private fun hasStructuralChange(
+        currentMarker: NClusterableMarker,
+        nextMarker: NClusterableMarker,
+    ): Boolean {
+        return currentMarker.info.point != nextMarker.info.point ||
+            currentMarker.info.tags != nextMarker.info.tags
+    }
+
+    private fun updateVisibleMarkers(
+        markers: Map<NClusterableMarkerInfo, NClusterableMarker>,
+    ) {
+        for ((info, clusterableMarker) in markers) {
+            val currentOverlay =
+                overlayController.getOverlay(info.messageOverlayInfo) as? Marker ?: continue
+            overlayController.saveOverlayWithAddable(clusterableMarker.wrappedMarker, currentOverlay)
+        }
+    }
+
     private fun onClusterableMarkerUpdate(
         clusterableMarkerInfo: LeafMarkerInfo, marker: Marker,
     ) {
+        if (isRefreshSuspended) {
+            marker.isVisible = false
+            return
+        }
+
         DefaultLeafMarkerUpdater().updateLeafMarker(clusterableMarkerInfo, marker)
         marker.icon = MarkerIcons.BLACK
 
         val nClusterableMarker = clusterableMarkerInfo.tag as NClusterableMarker
         val nMarker = nClusterableMarker.wrappedMarker
         overlayController.saveOverlayWithAddable(nMarker, marker)
-        scheduleInvalidateView()
     }
 
 //    private fun distanceStrategy(zoom: Int, node: Node, node1: Node): Double {
@@ -258,6 +433,11 @@ internal class ClusteringController(
 
     override fun retainMarker(info: MarkerInfo): Marker {
         val marker = Marker(info.position)
+        if (isRefreshSuspended) {
+            marker.isVisible = false
+            return marker
+        }
+
         when (val data = info.tag) {
 //            is NClusterableMarker -> {
 //                val nMarker = data.wrappedMarker
@@ -272,6 +452,7 @@ internal class ClusteringController(
     }
 
     override fun releaseMarker(info: MarkerInfo, marker: Marker) {
+        if (suppressRelease || isRefreshSuspended) return
         when (val data = info.tag) {
             is NClusterableMarker -> overlayController.deleteOverlay(data.info)
             is NClusterInfo -> overlayController.deleteOverlay(data.markerInfo.messageOverlayInfo)
@@ -283,6 +464,7 @@ internal class ClusteringController(
             clusterer.map = null
             clusterer.clear()
         }
+        flushPendingOverlayPrune()
         // strict remove reference (callback remove, if needed)
 //        val builder = ComplexBuilder<NClusterableMarkerInfo>()
 //        clusterer = builder.build()

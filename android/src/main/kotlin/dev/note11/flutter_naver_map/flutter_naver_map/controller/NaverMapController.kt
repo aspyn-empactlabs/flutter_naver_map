@@ -42,11 +42,10 @@ internal class NaverMapController(
     private val channel: MethodChannel,
     private val applicationContext: Context,
     private val overlayController: OverlayHandler,
-    viewInvalidator: () -> Unit,
 ) : NaverMapControlSender, NaverMapControlHandler {
     private var naverMapViewOptions: NaverMapViewOptions? = null
     private val clusteringController =
-        ClusteringController(naverMap, overlayController, channel::invokeMethod, viewInvalidator)
+        ClusteringController(naverMap, overlayController, channel::invokeMethod)
 
     init {
         overlayController.initializeLocationOverlay(naverMap.locationOverlay)
@@ -208,7 +207,18 @@ internal class NaverMapController(
                 clusteringController.deleteClusterableMarker(overlayInfo)
             }
 
-            else -> overlayController.deleteOverlay(overlayInfo)
+            else -> {
+                if (overlayController.hasOverlay(overlayInfo)) {
+                    overlayController.deleteOverlay(overlayInfo)
+                } else {
+                    // fallback: marker may have been added as clusterable marker
+                    try {
+                        clusteringController.deleteClusterableMarker(overlayInfo)
+                    } catch (_: Exception) {
+                        // already removed by clustering SDK
+                    }
+                }
+            }
         }
         onSuccess()
     }
@@ -228,6 +238,11 @@ internal class NaverMapController(
 
     override fun forceRefresh(onSuccess: () -> Unit) {
         naverMap.forceRefresh()
+        onSuccess()
+    }
+
+    override fun setClusterRefreshSuspended(suspended: Boolean, onSuccess: () -> Unit) {
+        clusteringController.setRefreshSuspended(suspended)
         onSuccess()
     }
 
@@ -305,6 +320,7 @@ internal class NaverMapController(
 
     override fun onCameraChange(cameraUpdateReason: Int, animated: Boolean) {
         val cameraPosition = naverMap.cameraPosition
+        clusteringController.onCameraPositionChanged(cameraPosition.zoom)
         channel.invokeMethod(
             "onCameraChange", mapOf(
                 "reason" to cameraUpdateReason,

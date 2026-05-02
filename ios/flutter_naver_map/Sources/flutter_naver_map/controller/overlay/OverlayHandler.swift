@@ -4,6 +4,8 @@ import Flutter
 internal protocol OverlayHandler {
     func hasOverlay(info: NOverlayInfo) -> Bool
 
+    func getOverlay(info: NOverlayInfo) -> NMFOverlay?
+
     func saveOverlay(overlay: NMFOverlay, info: NOverlayInfo)
 
     func deleteOverlay(info: NOverlayInfo)
@@ -11,6 +13,10 @@ internal protocol OverlayHandler {
     func clearOverlays()
 
     func clearOverlays(type: NOverlayType)
+
+    func getOverlays(type: NOverlayType) -> Dictionary<NOverlayInfo, NMFOverlay>
+
+    func takeOverlays(type: NOverlayType) -> Dictionary<NOverlayInfo, NMFOverlay>
     
     func initializeLocationOverlay(overlay: NMFLocationOverlay)
 
@@ -91,10 +97,6 @@ internal extension OverlayHandler {
         creator: C,
         createdOverlay: C.OverlayType? = nil
     ) -> NMFOverlay {
-        if hasOverlay(info: creator.info) {
-            deleteOverlay(info: creator.info)
-        }
-
         let overlay = createdOverlay != nil
         ? creator.applyAtRawOverlay(createdOverlay!)
          : creator.createMapOverlay()

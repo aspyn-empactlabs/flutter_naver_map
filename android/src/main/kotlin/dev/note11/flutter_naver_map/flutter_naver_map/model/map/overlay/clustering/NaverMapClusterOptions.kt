@@ -2,12 +2,14 @@ package dev.note11.flutter_naver_map.flutter_naver_map.model.map.overlay.cluster
 
 import dev.note11.flutter_naver_map.flutter_naver_map.converter.DefaultTypeConverter.asLong
 import dev.note11.flutter_naver_map.flutter_naver_map.converter.DefaultTypeConverter.asMap
+import dev.note11.flutter_naver_map.flutter_naver_map.converter.DefaultTypeConverter.asBoolean
 import dev.note11.flutter_naver_map.flutter_naver_map.model.base.NRange
 
 internal data class NaverMapClusterOptions(
     val enableZoomRange: NRange<Int>,
     val animationDuration: Long,
     val mergeStrategy: NClusterMergeStrategy,
+    val deferRefreshOnCameraZoomUntilResume: Boolean,
 ) {
     companion object {
         fun fromMessageable(args: Any): NaverMapClusterOptions = args.asMap().let { map ->
@@ -15,6 +17,8 @@ internal data class NaverMapClusterOptions(
                 enableZoomRange = NRange.fromMessageableWithExactType(map["enableZoomRange"]!!),
                 animationDuration = map["animationDuration"]!!.asLong(),
                 mergeStrategy = NClusterMergeStrategy.fromMessageable(map["mergeStrategy"]!!),
+                deferRefreshOnCameraZoomUntilResume =
+                    map["deferRefreshOnCameraZoomUntilResume"]?.asBoolean() ?: false,
             )
         }
     }
