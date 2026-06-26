@@ -55,7 +55,12 @@ abstract class NMyLocationTracker with AppLifeCycleBinder {
       NLocationOverlay locationOverlay,
       NaverMapController controller,
       NLocationTrackingMode mode) {
-    if (reason case NCameraUpdateReason.location) return;
+    // 실제 사용자 제스처일 때만 추적(follow/face)을 해제한다.
+    // 프로그램 이동(developer, 예: 직전 동작의 animateCamera 애니메이션이 아직
+    // 진행 중)과 추적 이동(location)은 해제하면 안 된다. 그렇지 않으면 이전
+    // 카메라 애니메이션이 끝나기 전에 Face 모드로 빠르게 진입할 때 추적이
+    // 조용히 noFollow 로 강등되어 방위 회전이 동작하지 않는다.
+    if (reason != NCameraUpdateReason.gesture) return;
     if (mode
         case NLocationTrackingMode.none || NLocationTrackingMode.noFollow) {
       return;
